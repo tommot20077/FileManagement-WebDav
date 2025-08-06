@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package file_processing;
+
+option java_package = "dowob.xyz.filemanagementwebdav.grpc";
+option java_outer_classname = "FileProcessingProto";
+
+message FileProcessingRequest {
+  string path = 1;
+  string operation = 2;          // READ, WRITE, DELETE, MOVE, COPY, LIST, MKCOL
+  optional string target_path = 3;
+  optional string content_type = 4;
+  optional int64 content_length = 5;
+  optional bytes data = 6;       // 小文件直接包含數據
+  optional FileRange range = 7;
+  optional string username = 8;  // 認證信息
+}
+
+message FileProcessingResponse {
+  bool success = 1;
+  optional string error_message = 2;
+  optional bytes data = 3;
+  optional FileMetadata file_metadata = 4;
+  repeated FileMetadata children = 5; // LIST 操作返回
+}
+// 文件元數據
+message FileMetadata {
+  string id = 1;
+  string name = 2;
+  string path = 3;
+  int64 size = 4;
+  string content_type = 5;
+  bool is_directory = 6;
+  int64 create_timestamp = 7;
+  int64 modified_timestamp = 8;
+  optional int64 parent_id = 9;     // 父資料夾 ID
+  optional string original_name = 10; // 原始檔名（處理重複前）
+}
+
+// === 身份驗證相關消息 ===
+
+// 身份驗證請求
+message AuthenticateRequest {
+  string username = 1;
+  string password = 2;
+  optional string client_ip = 3;      // 客戶端 IP，用於安全審計
+  optional string user_agent = 4;     // 客戶端類型（如 Windows Explorer, Mac Finder）
+  optional string session_id = 5;     // 會話標識，用於追蹤
+}
+
+// 身份驗證響應
+message AuthenticateResponse {
+  bool success = 1;
+  optional string user_id = 2;        // 用戶 ID（主服務的數據庫 ID）
+  optional string error_message = 3;   // 錯誤信息
+  optional string jwt_token = 4;       // JWT token，可用於後續請求
+  optional int64 expires_in = 5;      // token 過期時間（秒）
+  repeated string roles = 6;           // 用戶角色列表
+}
+
+// 文件範圍
+message FileRange {
+  int64 start = 1;
+  int64 end = 2;
+}
+
+// 服務定義
+service FileProcessingService {
+  // 身份驗證
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
+  
+  // 文件處理
+  rpc ProcessFile(FileProcessingRequest) returns (FileProcessingResponse);
+  rpc GetFileMetadata(GetFileMetadataRequest) returns (FileMetadataResponse);
+  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
+  rpc DownloadFile(DownloadFileRequest) returns (stream DownloadFileResponse);
+}
+
+// 其他輔助消息
+message GetFileMetadataRequest {
+  string path = 1;
+}
+
+message FileMetadataResponse {
+  bool exists = 1;
+  optional FileMetadata metadata = 2;
+}
+
+message UploadFileRequest {
+  oneof data {
+    FileUploadMetadata metadata = 1;
+    bytes chunk_data = 2;
+  }
+}
+
+message FileUploadMetadata {
+  string path = 1;
+  string content_type = 2;
+  int64 total_size = 3;
+}
+
+message UploadFileResponse {
+  bool success = 1;
+  optional string error_message = 2;
+  optional FileMetadata metadata = 3;
+}
+
+message DownloadFileRequest {
+  string path = 1;
+}
+
+message DownloadFileResponse {
+  optional bytes chunk_data = 1;
+}
+

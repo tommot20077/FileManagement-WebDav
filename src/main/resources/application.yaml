@@ -1,0 +1,67 @@
+spring:
+  application:
+    name: FileManagement-WebDAV
+  profiles:
+    active: webdav  # 標識這是WebDAV專用子服務
+
+server:
+  port: 8081  # WebDAV 服務端口（專用）
+
+# gRPC 配置
+grpc:
+  host: localhost
+  port: 9090
+
+# WebDAV 配置
+# 注意：此為專用 WebDAV 子服務，所有核心功能都強制啟用
+webdav:
+  auth:
+    cache:
+      max-size: 1000
+      expire-minutes: 5
+  security:
+    realm: "FileManagement WebDAV"
+    # JWT 配置
+    jwt:
+      secret: "${JWT_SECRET:change-this-secret-in-production-environment-to-a-strong-secret-key}"
+      issuer: "${JWT_ISSUER:FileManagement-System}"
+      # JWT 撤銷檢查配置
+      revocation:
+        cache:
+          expire-minutes: 10           # 快取過期時間（分鐘）
+          max-size: 5000               # 最大快取條目數
+    # IP 白名單配置
+    ip:
+      whitelist:
+        enabled: false                       # IP 白名單（可按需啟用）
+        ips:
+          - "127.0.0.1"
+          - "192.168.1.0/24"
+          - "10.0.0.0/8"
+      blacklist:
+        ips:
+          - "192.168.1.100"                  # 示例黑名單 IP
+    # 頻率限制配置
+    rate-limit:
+      ip-requests-per-minute: 60      # 每個 IP 每分鐘最大請求數
+      user-requests-per-minute: 120   # 每個用戶每分鐘最大請求數
+      global-requests-per-second: 100 # 全域每秒最大請求數
+      cache-size: 10000               # 頻率限制快取大小
+    # 審計配置 - 強制啟用
+    audit:
+      include-request-details: true    # 是否包含請求詳情
+      sensitive-data-mask: true        # 是否遮蔽敏感數據
+  # 路徑映射配置 - 預載入功能強制啟用
+  path-mapping:
+    cache-size: 10000                  # 路徑映射快取大小
+    cache-ttl: 3600                    # 快取過期時間（秒）
+    sync-interval: 300                 # 同步間隔（秒）
+
+# 日誌配置
+logging:
+  level:
+    dowob.xyz.filemanagementwebdav: DEBUG
+    io.milton: INFO
+    io.grpc: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
