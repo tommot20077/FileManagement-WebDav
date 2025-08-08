@@ -131,6 +131,11 @@ public class RequestContextHolder {
         private String username;
         
         /**
+         * 認證令牌（JWT token）
+         */
+        private String authToken;
+        
+        /**
          * 設置認證用戶信息
          * 
          * @param userId 用戶 ID
@@ -139,6 +144,24 @@ public class RequestContextHolder {
         public void setAuthenticatedUser(String userId, String username) {
             this.userId = userId;
             this.username = username;
+        }
+        
+        /**
+         * 設置認證令牌
+         * 
+         * @param authToken JWT token
+         */
+        public void setAuthToken(String authToken) {
+            this.authToken = authToken;
+        }
+        
+        /**
+         * 獲取認證令牌
+         * 
+         * @return JWT token
+         */
+        public String getAuthToken() {
+            return authToken;
         }
         
         /**

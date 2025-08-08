@@ -2,7 +2,6 @@ package dowob.xyz.filemanagementwebdav.component.security;
 
 import dowob.xyz.filemanagementwebdav.component.cache.AuthenticationCache;
 import dowob.xyz.filemanagementwebdav.context.RequestContextHolder;
-import dowob.xyz.filemanagementwebdav.grpc.FileProcessingProto;
 import dowob.xyz.filemanagementwebdav.service.GrpcClientService;
 import dowob.xyz.filemanagementwebdav.utils.LogUtils;
 import io.milton.http.Auth;
@@ -15,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -158,28 +158,29 @@ public class WebDavSecurityManager implements SecurityManager {
         String userAgent = context != null ? context.getUserAgent() : null;
         
         // 調用 gRPC 服務進行身份驗證
-        FileProcessingProto.AuthenticateResponse response = 
-            grpcClientService.authenticate(user, password, clientIp, userAgent);
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse response = 
+            grpcClientService.authenticate(user, password);
         
         // 將結果存入快取
         authCache.put(user, password, 
-                     response.hasUserId() ? response.getUserId() : null, 
+                     response.getUserId() != 0 ? String.valueOf(response.getUserId()) : null, 
                      response.getSuccess());
         
         if (response.getSuccess()) {
             // 設置認證用戶信息到請求上下文
             if (context != null) {
-                context.setAuthenticatedUser(response.getUserId(), user);
+                context.setAuthenticatedUser(String.valueOf(response.getUserId()), user);
             }
             
             // 記錄認證成功
             LogUtils.logAuthentication("PASSWORD_LOGIN", user, true, "WebDAV authentication successful");
             
             // 返回認證結果對象，包含用戶信息
+            // 注意：新的 AuthenticationResponse 沒有 roles 欄位，使用空列表
             return new AuthenticatedUser(
-                response.getUserId(),
+                String.valueOf(response.getUserId()),
                 user,
-                response.getRolesList()
+                new ArrayList<>()  // 角色信息需要從其他地方獲取
             );
         } else {
             // 記錄認證失敗

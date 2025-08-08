@@ -1,115 +1,328 @@
 syntax = "proto3";
 
-package file_processing;
+package xyz.dowob.filemanagement.grpc;
 
-option java_package = "dowob.xyz.filemanagementwebdav.grpc";
+option java_multiple_files = true;
+option java_package = "xyz.dowob.filemanagement.grpc";
 option java_outer_classname = "FileProcessingProto";
 
-message FileProcessingRequest {
-  string path = 1;
-  string operation = 2;          // READ, WRITE, DELETE, MOVE, COPY, LIST, MKCOL
-  optional string target_path = 3;
-  optional string content_type = 4;
-  optional int64 content_length = 5;
-  optional bytes data = 6;       // 小文件直接包含數據
-  optional FileRange range = 7;
-  optional string username = 8;  // 認證信息
-}
-
-message FileProcessingResponse {
-  bool success = 1;
-  optional string error_message = 2;
-  optional bytes data = 3;
-  optional FileMetadata file_metadata = 4;
-  repeated FileMetadata children = 5; // LIST 操作返回
-}
-// 文件元數據
-message FileMetadata {
-  string id = 1;
-  string name = 2;
-  string path = 3;
-  int64 size = 4;
-  string content_type = 5;
-  bool is_directory = 6;
-  int64 create_timestamp = 7;
-  int64 modified_timestamp = 8;
-  optional int64 parent_id = 9;     // 父資料夾 ID
-  optional string original_name = 10; // 原始檔名（處理重複前）
-}
-
-// === 身份驗證相關消息 ===
-
-// 身份驗證請求
-message AuthenticateRequest {
-  string username = 1;
-  string password = 2;
-  optional string client_ip = 3;      // 客戶端 IP，用於安全審計
-  optional string user_agent = 4;     // 客戶端類型（如 Windows Explorer, Mac Finder）
-  optional string session_id = 5;     // 會話標識，用於追蹤
-}
-
-// 身份驗證響應
-message AuthenticateResponse {
-  bool success = 1;
-  optional string user_id = 2;        // 用戶 ID（主服務的數據庫 ID）
-  optional string error_message = 3;   // 錯誤信息
-  optional string jwt_token = 4;       // JWT token，可用於後續請求
-  optional int64 expires_in = 5;      // token 過期時間（秒）
-  repeated string roles = 6;           // 用戶角色列表
-}
-
-// 文件範圍
-message FileRange {
-  int64 start = 1;
-  int64 end = 2;
-}
-
-// 服務定義
+// 通用檔案處理服務 - 不包含任何協議特定邏輯
 service FileProcessingService {
-  // 身份驗證
-  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
-  
-  // 文件處理
-  rpc ProcessFile(FileProcessingRequest) returns (FileProcessingResponse);
-  rpc GetFileMetadata(GetFileMetadataRequest) returns (FileMetadataResponse);
-  rpc UploadFile(stream UploadFileRequest) returns (UploadFileResponse);
-  rpc DownloadFile(DownloadFileRequest) returns (stream DownloadFileResponse);
+    // ==================== 檔案上傳服務 ====================
+    // Streaming 上傳 - 支援大檔案和秒傳
+    rpc UploadFile(stream FileUploadChunk) returns (stream UploadProgress);
+    
+    // 簡單上傳 - 用於小檔案的單次上傳
+    rpc UploadFileSimple(UploadFileRequest) returns (UploadFileResponse);
+    
+    // ==================== 檔案操作服務 ====================
+    // 獲取檔案內容 - 基於檔案ID
+    rpc GetFileContent(GetFileRequest) returns (stream FileContentResponse);
+    
+    // 獲取檔案元資料 - 基於檔案ID
+    rpc GetFileMetadata(GetFileMetadataRequest) returns (FileMetadataResponse);
+    
+    // 刪除檔案 - 基於檔案ID
+    rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+    
+    // 移動/重命名檔案
+    rpc MoveFile(MoveFileRequest) returns (MoveFileResponse);
+    
+    // 複製檔案
+    rpc CopyFile(CopyFileRequest) returns (CopyFileResponse);
+    
+    // ==================== 資料夾操作服務 ====================
+    // 列出資料夾內容 - 基於資料夾ID
+    rpc ListFolder(ListFolderRequest) returns (ListFolderResponse);
+    
+    // 創建資料夾
+    rpc CreateFolder(CreateFolderRequest) returns (CreateFolderResponse);
+    
+    // ==================== 權限和認證服務 ====================
+    // 用戶認證
+    rpc AuthenticateUser(AuthenticationRequest) returns (AuthenticationResponse);
+    
+    // 檢查權限
+    rpc CheckPermission(PermissionRequest) returns (PermissionResponse);
+    
+    // ==================== 檔案鎖定服務 ====================
+    // 鎖定檔案
+    rpc LockFile(LockFileRequest) returns (LockFileResponse);
+    
+    // 解鎖檔案
+    rpc UnlockFile(UnlockFileRequest) returns (UnlockFileResponse);
+    
+    // ==================== 查詢服務 ====================
+    // 根據條件查找檔案
+    rpc FindFiles(FindFilesRequest) returns (FindFilesResponse);
 }
 
-// 其他輔助消息
-message GetFileMetadataRequest {
-  string path = 1;
+// ==================== 檔案上傳相關消息 ====================
+
+// 檔案上傳分塊 - 用於 streaming 上傳
+message FileUploadChunk {
+    oneof data {
+        FileUploadMetadata metadata = 1;    // 第一個 chunk 包含元資料
+        bytes chunk_data = 2;                // 檔案內容分塊
+        UploadChecksum checksum = 3;        // 最後一個 chunk 包含校驗資訊
+    }
 }
 
-message FileMetadataResponse {
-  bool exists = 1;
-  optional FileMetadata metadata = 2;
-}
-
-message UploadFileRequest {
-  oneof data {
-    FileUploadMetadata metadata = 1;
-    bytes chunk_data = 2;
-  }
-}
-
+// 檔案上傳元資料
 message FileUploadMetadata {
-  string path = 1;
-  string content_type = 2;
-  int64 total_size = 3;
+    int64 user_id = 1;
+    string user_token = 2;
+    string filename = 3;
+    int64 parent_folder_id = 4;
+    int64 total_size = 5;
+    string mime_type = 6;
 }
 
+// 上傳校驗資訊
+message UploadChecksum {
+    string md5 = 1;
+    int64 total_chunks = 2;
+}
+
+// 上傳進度
+message UploadProgress {
+    double percentage = 1;
+    string message = 2;
+    bool is_completed = 3;
+    bool is_instant_upload = 4;  // 是否為秒傳
+    int64 file_id = 5;           // 上傳成功後的檔案ID
+    string error_message = 6;
+}
+
+// 簡單上傳請求 - 用於小檔案
+message UploadFileRequest {
+    int64 user_id = 1;
+    string user_token = 2;
+    string filename = 3;
+    int64 parent_folder_id = 4;
+    string md5 = 5;
+    bytes content = 6;
+    string mime_type = 7;
+}
+
+// 上傳回應
 message UploadFileResponse {
-  bool success = 1;
-  optional string error_message = 2;
-  optional FileMetadata metadata = 3;
+    bool success = 1;
+    int64 file_id = 2;
+    bool is_instant_upload = 3;
+    string message = 4;
+    string error_message = 5;
 }
 
-message DownloadFileRequest {
-  string path = 1;
+// ==================== 檔案操作相關消息 ====================
+
+// 獲取檔案請求 - 基於ID
+message GetFileRequest {
+    int64 file_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+    string range = 4;  // 可選的 Range 請求
 }
 
-message DownloadFileResponse {
-  optional bytes chunk_data = 1;
+// 檔案內容回應
+message FileContentResponse {
+    bytes content = 1;
+    int64 total_size = 2;
+    bool is_final = 3;
+    string error_message = 4;
 }
 
+// 獲取元資料請求
+message GetFileMetadataRequest {
+    int64 file_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+}
+
+// 檔案元資料回應
+message FileMetadataResponse {
+    bool success = 1;
+    FileInfo file_info = 2;
+    string error_message = 3;
+}
+
+// 檔案資訊
+message FileInfo {
+    int64 id = 1;
+    string name = 2;
+    int64 size = 3;
+    bool is_directory = 4;
+    int64 created_time = 5;
+    int64 modified_time = 6;
+    string mime_type = 7;
+    int64 parent_id = 8;
+    string owner = 9;
+    bool locked = 10;
+    string lock_token = 11;
+}
+
+// 刪除檔案請求
+message DeleteFileRequest {
+    int64 file_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+}
+
+// 刪除檔案回應
+message DeleteFileResponse {
+    bool success = 1;
+    string message = 2;
+    string error_message = 3;
+}
+
+// 移動檔案請求
+message MoveFileRequest {
+    int64 file_id = 1;
+    int64 new_parent_id = 2;
+    string new_name = 3;
+    int64 user_id = 4;
+    string user_token = 5;
+}
+
+// 移動檔案回應
+message MoveFileResponse {
+    bool success = 1;
+    int64 new_file_id = 2;
+    string message = 3;
+    string error_message = 4;
+}
+
+// 複製檔案請求
+message CopyFileRequest {
+    int64 file_id = 1;
+    int64 target_parent_id = 2;
+    string new_name = 3;
+    int64 user_id = 4;
+    string user_token = 5;
+}
+
+// 複製檔案回應
+message CopyFileResponse {
+    bool success = 1;
+    int64 new_file_id = 2;
+    string message = 3;
+    string error_message = 4;
+}
+
+// ==================== 資料夾操作相關消息 ====================
+
+// 列出資料夾請求
+message ListFolderRequest {
+    int64 folder_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+    int32 page = 4;
+    int32 page_size = 5;
+}
+
+// 列出資料夾回應
+message ListFolderResponse {
+    bool success = 1;
+    repeated FileInfo files = 2;
+    int32 total_count = 3;
+    string error_message = 4;
+}
+
+// 創建資料夾請求
+message CreateFolderRequest {
+    int64 parent_id = 1;
+    string folder_name = 2;
+    int64 user_id = 3;
+    string user_token = 4;
+}
+
+// 創建資料夾回應
+message CreateFolderResponse {
+    bool success = 1;
+    int64 folder_id = 2;
+    string message = 3;
+    string error_message = 4;
+}
+
+// ==================== 權限和認證相關消息 ====================
+
+// 認證請求
+message AuthenticationRequest {
+    string username = 1;
+    string password = 2;
+}
+
+// 認證回應
+message AuthenticationResponse {
+    bool success = 1;
+    string jwt_token = 2;
+    int64 user_id = 3;
+    string error_message = 4;
+}
+
+// 權限請求
+message PermissionRequest {
+    int64 file_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+    string operation = 4;  // READ, WRITE, DELETE, etc.
+}
+
+// 權限回應
+message PermissionResponse {
+    bool has_permission = 1;
+    string message = 2;
+}
+
+// ==================== 檔案鎖定相關消息 ====================
+
+// 鎖定檔案請求
+message LockFileRequest {
+    int64 file_id = 1;
+    int64 user_id = 2;
+    string user_token = 3;
+    int32 timeout_seconds = 4;
+}
+
+// 鎖定檔案回應
+message LockFileResponse {
+    bool success = 1;
+    string lock_token = 2;
+    string error_message = 3;
+}
+
+// 解鎖檔案請求
+message UnlockFileRequest {
+    int64 file_id = 1;
+    string lock_token = 2;
+    int64 user_id = 3;
+    string user_token = 4;
+}
+
+// 解鎖檔案回應
+message UnlockFileResponse {
+    bool success = 1;
+    string message = 2;
+    string error_message = 3;
+}
+
+// ==================== 查詢相關消息 ====================
+
+// 查找檔案請求
+message FindFilesRequest {
+    int64 user_id = 1;
+    string user_token = 2;
+    string query = 3;           // 搜尋關鍵字
+    int64 parent_folder_id = 4; // 可選：限定在特定資料夾下
+    string file_type = 5;        // 可選：檔案類型過濾
+    int32 page = 6;
+    int32 page_size = 7;
+}
+
+// 查找檔案回應
+message FindFilesResponse {
+    bool success = 1;
+    repeated FileInfo files = 2;
+    int32 total_count = 3;
+    string error_message = 4;
+}

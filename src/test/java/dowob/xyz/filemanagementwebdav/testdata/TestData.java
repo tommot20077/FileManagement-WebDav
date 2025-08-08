@@ -2,7 +2,7 @@ package dowob.xyz.filemanagementwebdav.testdata;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
-import dowob.xyz.filemanagementwebdav.grpc.FileProcessingProto;
+import xyz.dowob.filemanagement.grpc.FileProcessingProto;
 
 import java.time.Instant;
 import java.util.Arrays;
@@ -313,21 +313,19 @@ public class TestData {
     /**
      * 創建成功的認證響應
      */
-    public static FileProcessingProto.AuthenticateResponse createSuccessResponse() {
-        return FileProcessingProto.AuthenticateResponse.newBuilder()
+    public static xyz.dowob.filemanagement.grpc.AuthenticationResponse createSuccessResponse() {
+        return xyz.dowob.filemanagement.grpc.AuthenticationResponse.newBuilder()
                 .setSuccess(true)
-                .setUserId(VALID_USER_ID)
-                .addAllRoles(VALID_ROLES)
+                .setUserId(Long.parseLong(VALID_USER_ID))
                 .setJwtToken("test.jwt.token")
-                .setExpiresIn(3600)
                 .build();
     }
     
     /**
      * 創建失敗的認證響應
      */
-    public static FileProcessingProto.AuthenticateResponse createFailureResponse() {
-        return FileProcessingProto.AuthenticateResponse.newBuilder()
+    public static xyz.dowob.filemanagement.grpc.AuthenticationResponse createFailureResponse() {
+        return xyz.dowob.filemanagement.grpc.AuthenticationResponse.newBuilder()
                 .setSuccess(false)
                 .setErrorMessage(AUTH_FAILED_MESSAGE)
                 .build();
@@ -336,21 +334,13 @@ public class TestData {
     /**
      * 創建認證請求
      */
-    public static FileProcessingProto.AuthenticateRequest createAuthRequest(
+    public static xyz.dowob.filemanagement.grpc.AuthenticationRequest createAuthRequest(
             String username, String password, String clientIp, String userAgent) {
-        FileProcessingProto.AuthenticateRequest.Builder builder = 
-                FileProcessingProto.AuthenticateRequest.newBuilder()
+        // Note: clientIp and userAgent are no longer part of AuthenticationRequest in the new proto
+        return xyz.dowob.filemanagement.grpc.AuthenticationRequest.newBuilder()
                         .setUsername(username)
-                        .setPassword(password);
-        
-        if (clientIp != null) {
-            builder.setClientIp(clientIp);
-        }
-        if (userAgent != null) {
-            builder.setUserAgent(userAgent);
-        }
-        
-        return builder.build();
+                        .setPassword(password)
+                        .build();
     }
     
     /**
@@ -503,13 +493,11 @@ public class TestData {
     /**
      * 創建包含 JWT 的認證響應
      */
-    public static FileProcessingProto.AuthenticateResponse createJwtAuthResponse(String jwtToken) {
-        return FileProcessingProto.AuthenticateResponse.newBuilder()
+    public static xyz.dowob.filemanagement.grpc.AuthenticationResponse createJwtAuthResponse(String jwtToken) {
+        return xyz.dowob.filemanagement.grpc.AuthenticationResponse.newBuilder()
                 .setSuccess(true)
-                .setUserId(VALID_USER_ID)
-                .addAllRoles(VALID_ROLES)
+                .setUserId(Long.parseLong(VALID_USER_ID))
                 .setJwtToken(jwtToken)
-                .setExpiresIn(3600)
                 .build();
     }
     

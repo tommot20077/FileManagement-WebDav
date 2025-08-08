@@ -1,7 +1,7 @@
 package dowob.xyz.filemanagementwebdav.component.security;
 
 import dowob.xyz.filemanagementwebdav.component.cache.AuthenticationCache;
-import dowob.xyz.filemanagementwebdav.grpc.FileProcessingProto;
+import xyz.dowob.filemanagement.grpc.FileProcessingProto;
 import dowob.xyz.filemanagementwebdav.service.GrpcClientService;
 import dowob.xyz.filemanagementwebdav.testdata.TestData;
 import io.milton.http.Auth;
@@ -95,7 +95,7 @@ class WebDavSecurityManagerTest {
         assertThat(user.getUsername()).isEqualTo(TestData.VALID_USERNAME);
         
         // 驗證沒有調用 gRPC 服務
-        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString(), any(), any());
+        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString());
         // 驗證沒有更新快取
         verify(mockAuthCache, never()).put(anyString(), anyString(), any(), anyBoolean());
         // 驗證檢查了JWT格式
@@ -120,7 +120,7 @@ class WebDavSecurityManagerTest {
         assertThat(result).isNull();
         
         // 驗證沒有調用 gRPC 服務
-        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString(), any(), any());
+        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString());
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
     }
@@ -133,8 +133,8 @@ class WebDavSecurityManagerTest {
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(null);
         
-        FileProcessingProto.AuthenticateResponse successResponse = TestData.createSuccessResponse();
-        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null))
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse successResponse = TestData.createSuccessResponse();
+        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(successResponse);
         
         // When
@@ -146,12 +146,13 @@ class WebDavSecurityManagerTest {
         
         WebDavSecurityManager.AuthenticatedUser user = (WebDavSecurityManager.AuthenticatedUser) result;
         assertThat(user.getUserId()).isEqualTo(TestData.VALID_USER_ID);
-        assertThat(user.getRoles()).containsExactlyElementsOf(TestData.VALID_ROLES);
+        // 新的 AuthenticationResponse 沒有 roles 欄位，所以角色列表為空
+        assertThat(user.getRoles()).isEmpty();
         
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
         // 驗證調用了 gRPC 服務
-        verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null);
+        verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD);
         // 驗證更新了快取
         verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, TestData.VALID_USER_ID, true);
     }
@@ -164,8 +165,8 @@ class WebDavSecurityManagerTest {
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(null);
         
-        FileProcessingProto.AuthenticateResponse failureResponse = TestData.createFailureResponse();
-        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null))
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse failureResponse = TestData.createFailureResponse();
+        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(failureResponse);
         
         // When
@@ -177,7 +178,7 @@ class WebDavSecurityManagerTest {
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
         // 驗證調用了 gRPC 服務
-        verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null);
+        verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD);
         // 驗證更新了快取（失敗結果）
         verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, false);
     }
@@ -189,7 +190,7 @@ class WebDavSecurityManagerTest {
         when(mockJwtService.isJwtFormat(TestData.VALID_PASSWORD)).thenReturn(false);
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(null);
-        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null))
+        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenThrow(new RuntimeException("gRPC error"));
         
         // When
@@ -212,13 +213,13 @@ class WebDavSecurityManagerTest {
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(null);
         
-        FileProcessingProto.AuthenticateResponse response = FileProcessingProto.AuthenticateResponse.newBuilder()
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse response = xyz.dowob.filemanagement.grpc.AuthenticationResponse.newBuilder()
                 .setSuccess(true)
                 // 沒有設置 userId
-                .addAllRoles(TestData.VALID_ROLES)
+                // roles 欄位已被移除
                 .build();
         
-        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, null))
+        when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(response);
         
         // When
@@ -383,8 +384,8 @@ class WebDavSecurityManagerTest {
         when(mockAuthCache.get(TestData.SPECIAL_USERNAME, TestData.SPECIAL_PASSWORD))
                 .thenReturn(null);
         
-        FileProcessingProto.AuthenticateResponse successResponse = TestData.createSuccessResponse();
-        when(mockGrpcClientService.authenticate(TestData.SPECIAL_USERNAME, TestData.SPECIAL_PASSWORD, null, null))
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse successResponse = TestData.createSuccessResponse();
+        when(mockGrpcClientService.authenticate(TestData.SPECIAL_USERNAME, TestData.SPECIAL_PASSWORD))
                 .thenReturn(successResponse);
         
         // When
@@ -404,8 +405,8 @@ class WebDavSecurityManagerTest {
         when(mockAuthCache.get(TestData.EMPTY_USERNAME, TestData.EMPTY_PASSWORD))
                 .thenReturn(null);
         
-        FileProcessingProto.AuthenticateResponse failureResponse = TestData.createFailureResponse();
-        when(mockGrpcClientService.authenticate(TestData.EMPTY_USERNAME, TestData.EMPTY_PASSWORD, null, null))
+        xyz.dowob.filemanagement.grpc.AuthenticationResponse failureResponse = TestData.createFailureResponse();
+        when(mockGrpcClientService.authenticate(TestData.EMPTY_USERNAME, TestData.EMPTY_PASSWORD))
                 .thenReturn(failureResponse);
         
         // When & Then - 應該正常處理，不拋出異常
@@ -454,7 +455,7 @@ class WebDavSecurityManagerTest {
         verify(mockJwtRevocationService).isTokenRevoked(jwtToken, null, TestData.VALID_USER_ID);
         
         // 驗證沒有調用 gRPC 服務和緩存
-        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString(), any(), any());
+        verify(mockGrpcClientService, never()).authenticate(anyString(), anyString());
         verify(mockAuthCache, never()).get(anyString(), anyString());
     }
     

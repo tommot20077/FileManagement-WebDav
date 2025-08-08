@@ -22,4 +22,6 @@ public class ProcessingResponse {
     private InputStream dataStream;
     private List<FileMetadata> children; // For LIST operation
     private FileMetadata metadata;
+    private String lockToken; // For LOCK operation
+    private String message; // For operation result message
 }

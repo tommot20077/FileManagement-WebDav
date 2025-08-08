@@ -2,7 +2,7 @@ package dowob.xyz.filemanagementwebdav.component.security;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import dowob.xyz.filemanagementwebdav.grpc.FileProcessingProto;
+import xyz.dowob.filemanagement.grpc.FileProcessingProto;
 import dowob.xyz.filemanagementwebdav.service.GrpcClientService;
 import dowob.xyz.filemanagementwebdav.utils.LogUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -107,28 +107,10 @@ public class JwtRevocationService {
      * 通過 gRPC 遠程檢查 token 撤銷狀態
      */
     private RevocationCheckResult checkRevocationRemotely(String jwtToken, String tokenId, String userId) {
-        try {
-            // 調用 gRPC 服務（使用臨時實現）
-            GrpcClientService.JwtRevocationCheckResult grpcResult = 
-                grpcClientService.checkJwtRevocation(jwtToken, tokenId, userId);
-            
-            if (grpcResult.isSuccess()) {
-                if (grpcResult.isRevoked()) {
-                    LogUtils.logSecurity("JWT_REVOCATION_CHECK", "Token is revoked: " + maskToken(jwtToken), "WARN");
-                    return RevocationCheckResult.revoked(grpcResult.getMessage());
-                } else {
-                    log.debug("JWT revocation check - token is valid: {}", maskToken(jwtToken));
-                    return RevocationCheckResult.valid(grpcResult.getMessage());
-                }
-            } else {
-                log.warn("JWT revocation check failed: {}", grpcResult.getMessage());
-                return RevocationCheckResult.error(grpcResult.getMessage());
-            }
-            
-        } catch (Exception e) {
-            log.error("Error during remote JWT revocation check", e);
-            return RevocationCheckResult.error("Failed to check revocation status: " + e.getMessage());
-        }
+        // TODO: JWT 撤銷檢查需要在主服務實現相應的 gRPC 方法
+        // 暫時返回未撤銷狀態
+        log.debug("JWT revocation check - skipped (not implemented): {}", maskToken(jwtToken));
+        return RevocationCheckResult.valid("Remote revocation check not yet implemented");
     }
     
     /**

@@ -56,6 +56,19 @@ webdav:
     cache-size: 10000                  # 路徑映射快取大小
     cache-ttl: 3600                    # 快取過期時間（秒）
     sync-interval: 300                 # 同步間隔（秒）
+  # 檔案上傳配置
+  upload:
+    max-simple-upload-size: 10485760   # 簡單上傳最大檔案大小（10MB，位元組）
+    stream-buffer-size: 1048576        # 串流上傳分塊大小（1MB，位元組）
+    timeout-seconds: 300               # 上傳超時時間（秒）
+    enable-resource-monitoring: true   # 是否啟用資源監控
+    concurrent-upload-limit: 50        # 並發上傳數量限制
+    retry-count: 3                     # 上傳重試次數
+    retry-delay-millis: 1000           # 重試間隔（毫秒）
+    progress-report-interval: 10       # 進度報告間隔（分塊數）
+    enable-md5-verification: true      # 是否啟用 MD5 校驗
+    temp-file-cleanup-interval-minutes: 60  # 臨時檔案清理間隔（分鐘）
+    stats-report-interval-minutes: 15  # 統計報告間隔（分鐘）
 
 # 日誌配置
 logging:

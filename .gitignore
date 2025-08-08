@@ -34,3 +34,7 @@ build/
 /webdav-enhance.md
 /WEBDAV-SERVICE-DESIGN.md
 /.claude/settings.local.json
+/.claude/
+/webdav-implementation-guide.md
+/webdav-todo.md
+/src/main/resources/application.yaml

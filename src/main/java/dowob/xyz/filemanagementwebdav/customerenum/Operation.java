@@ -22,6 +22,8 @@ public enum Operation {
     PROPPATCH, // Property patch operation
     UNKNOWN  // Unknown operation, used for error handling
     ;
+
+
     public static Operation fromString(String operation) {
         try {
             return Operation.valueOf(operation.toUpperCase());

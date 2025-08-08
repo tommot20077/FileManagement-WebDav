@@ -1,6 +1,6 @@
 package dowob.xyz.filemanagementwebdav.config;
 
-import dowob.xyz.filemanagementwebdav.grpc.FileProcessingServiceGrpc;
+import xyz.dowob.filemanagement.grpc.FileProcessingServiceGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;

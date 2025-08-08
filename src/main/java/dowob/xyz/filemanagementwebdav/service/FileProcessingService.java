@@ -112,7 +112,13 @@ public class FileProcessingService {
         }
         
         // 從 gRPC 服務獲取元資料
-        FileMetadata metadata = grpcClientService.getFileMetadata(path);
+        // getFileMetadata 方法已經不存在，需要使用 processFile 
+        ProcessingRequest request = ProcessingRequest.builder()
+            .path(pathStr)
+            .operation(Operation.LIST)
+            .build();
+        ProcessingResponse response = grpcClientService.processFile(request);
+        FileMetadata metadata = response.isSuccess() ? response.getMetadata() : null;
         
         // 更新快取
         if (metadata != null && fileId == null) {

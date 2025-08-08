@@ -30,6 +30,10 @@ public class FileMetadata {
     private Long createTimestamp;
     private Long modifiedTimestamp;
     
+    // 新增欄位以支援檔案鎖定
+    private boolean locked;
+    private String lockToken;
+    
     /**
      * 獲取數字類型的 ID
      */

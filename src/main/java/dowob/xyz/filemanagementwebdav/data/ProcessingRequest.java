@@ -19,10 +19,11 @@ import java.io.InputStream;
 @Builder
 public class ProcessingRequest {
     private String path;
-    private Operation operation; // READ, WRITE, DELETE, MOVE, COPY, LIST, MKCOL
+    private Operation operation; // READ, WRITE, DELETE, MOVE, COPY, LIST, MKCOL, PUT, LOCK, UNLOCK
     private String targetPath; // For MOVE/COPY operations
     private String contentType;
     private Long contentLength;
     private InputStream dataStream;
     private Range range;
+    private String lockToken; // For UNLOCK operation
 }
