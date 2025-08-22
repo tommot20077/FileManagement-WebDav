@@ -2,6 +2,7 @@ package dowob.xyz.filemanagementwebdav.service;
 
 import com.google.protobuf.ByteString;
 import dowob.xyz.filemanagementwebdav.context.RequestContextHolder;
+import dowob.xyz.filemanagementwebdav.config.properties.GrpcProperties;
 import dowob.xyz.filemanagementwebdav.config.properties.WebDavUploadProperties;
 import dowob.xyz.filemanagementwebdav.customerenum.Operation;
 import dowob.xyz.filemanagementwebdav.data.FileMetadata;
@@ -54,6 +55,7 @@ public class GrpcClientService {
     private final PathMappingService pathMappingService;
     private final WebDavUploadProperties uploadProperties;
     private final WebDavResourceMonitorService resourceMonitor;
+    private final GrpcProperties grpcProperties;
     
     // Note: Constants removed - now using uploadProperties for configuration
     
@@ -66,17 +68,21 @@ public class GrpcClientService {
         Metadata.Key.of("request-id", Metadata.ASCII_STRING_MARSHALLER);
     private static final Metadata.Key<String> USER_ID_KEY = 
         Metadata.Key.of("user-id", Metadata.ASCII_STRING_MARSHALLER);
+    private static final Metadata.Key<String> API_KEY_HEADER = 
+        Metadata.Key.of("x-api-key", Metadata.ASCII_STRING_MARSHALLER);
     
     @Autowired
     public GrpcClientService(ManagedChannel channel, PathMappingService pathMappingService, 
                            WebDavUploadProperties uploadProperties, 
-                           WebDavResourceMonitorService resourceMonitor) {
+                           WebDavResourceMonitorService resourceMonitor,
+                           GrpcProperties grpcProperties) {
         this.channel = channel;
         this.blockingStub = FileProcessingServiceGrpc.newBlockingStub(channel);
         this.asyncStub = FileProcessingServiceGrpc.newStub(channel);
         this.pathMappingService = pathMappingService;
         this.uploadProperties = uploadProperties;
         this.resourceMonitor = resourceMonitor;
+        this.grpcProperties = grpcProperties;
         
         log.info("GrpcClientService initialized with upload config: {}", uploadProperties.getConfigSummary());
     }
@@ -196,8 +202,10 @@ public class GrpcClientService {
         
         // 調用 gRPC 簡單上傳
         UploadFileRequest uploadRequest = UploadFileRequest.newBuilder()
-            .setUserId(userId)
-            .setUserToken(token)
+            .setAuth(AuthRequest.newBuilder()
+                .setJwtToken(token)
+                .setUserId(userId)
+                .build())
             .setFilename(filename)
             .setParentFolderId(parentFolderId)
             .setMd5(md5Hex)
@@ -282,8 +290,10 @@ public class GrpcClientService {
         try {
             // 發送元資料
             FileUploadMetadata metadata = FileUploadMetadata.newBuilder()
-                .setUserId(userId)
-                .setUserToken(token)
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFilename(filename)
                 .setParentFolderId(parentFolderId)
                 .setTotalSize(request.getContentLength() != null ? request.getContentLength() : 0)
@@ -394,9 +404,11 @@ public class GrpcClientService {
             
             // 調用 gRPC streaming 下載
             GetFileRequest request = GetFileRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFileId(fileId)
-                .setUserId(userId)
-                .setUserToken(token)
                 .build();
             
             getContextualBlockingStub()
@@ -438,9 +450,11 @@ public class GrpcClientService {
         
         try {
             DeleteFileRequest request = DeleteFileRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFileId(fileId)
-                .setUserId(userId)
-                .setUserToken(token)
                 .build();
             
             DeleteFileResponse response = getContextualBlockingStub()
@@ -484,10 +498,12 @@ public class GrpcClientService {
             }
             
             CreateFolderRequest request = CreateFolderRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setParentId(parentId)
                 .setFolderName(folderName)
-                .setUserId(userId)
-                .setUserToken(token)
                 .build();
             
             CreateFolderResponse response = getContextualBlockingStub()
@@ -536,9 +552,11 @@ public class GrpcClientService {
         
         try {
             ListFolderRequest request = ListFolderRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFolderId(folderId)
-                .setUserId(userId)
-                .setUserToken(token)
                 .build();
             
             ListFolderResponse response = getContextualBlockingStub()
@@ -576,24 +594,152 @@ public class GrpcClientService {
     
     /**
      * 處理移動檔案
+     * 
+     * @param fileId 要移動的檔案ID
+     * @param targetPath 目標路徑
+     * @param userId 用戶ID
+     * @param token JWT令牌
+     * @return 處理結果
      */
     private ProcessingResponse handleMove(Long fileId, String targetPath, Long userId, String token) {
-        // TODO: 實現移動邏輯
-        return ProcessingResponse.builder()
-            .success(false)
-            .errorMessage("Move operation not yet implemented")
-            .build();
+        try {
+            // 解析目標路徑
+            TargetPathInfo targetInfo = parseTargetPath(targetPath);
+            Long parentFolderId = resolveParentFolderId(targetInfo.getParentPath());
+            
+            // 構建認證請求
+            AuthRequest auth = AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build();
+            
+            // 構建移動請求
+            MoveFileRequest request = MoveFileRequest.newBuilder()
+                    .setAuth(auth)
+                    .setFileId(fileId)
+                    .setNewParentId(parentFolderId)
+                    .setNewName(targetInfo.getFileName())
+                    .build();
+            
+            // 調用主服務的移動API
+            MoveFileResponse response = getContextualBlockingStub()
+                    .withDeadlineAfter(uploadProperties.getTimeoutSeconds(), TimeUnit.SECONDS)
+                    .moveFile(request);
+            
+            if (response.getSuccess()) {
+                log.info("File moved successfully: {} → {}, new ID: {}", 
+                        fileId, targetPath, response.getNewFileId());
+                
+                // 返回成功結果，包含新檔案ID（可能相同）
+                return ProcessingResponse.builder()
+                        .success(true)
+                        .message("File moved successfully")
+                        .newFileId(response.getNewFileId())
+                        .build();
+            } else {
+                log.warn("Failed to move file {}: {}", fileId, response.getErrorMessage());
+                return ProcessingResponse.builder()
+                        .success(false)
+                        .errorMessage("Move failed: " + response.getErrorMessage())
+                        .build();
+            }
+            
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid move request for file {}: {}", fileId, e.getMessage());
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Invalid target path: " + e.getMessage())
+                    .build();
+                    
+        } catch (StatusRuntimeException e) {
+            log.error("gRPC error during move operation for file {}: {}", fileId, e.getStatus(), e);
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Server error: " + e.getStatus().getDescription())
+                    .build();
+                    
+        } catch (Exception e) {
+            log.error("Unexpected error during move operation for file {}: {}", fileId, e.getMessage(), e);
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Internal error: " + e.getMessage())
+                    .build();
+        }
     }
     
     /**
      * 處理複製檔案
+     * 
+     * @param fileId 要複製的檔案ID
+     * @param targetPath 目標路徑
+     * @param userId 用戶ID
+     * @param token JWT令牌
+     * @return 處理結果
      */
     private ProcessingResponse handleCopy(Long fileId, String targetPath, Long userId, String token) {
-        // TODO: 實現複製邏輯
-        return ProcessingResponse.builder()
-            .success(false)
-            .errorMessage("Copy operation not yet implemented")
-            .build();
+        try {
+            // 解析目標路徑
+            TargetPathInfo targetInfo = parseTargetPath(targetPath);
+            Long parentFolderId = resolveParentFolderId(targetInfo.getParentPath());
+            
+            // 構建認證請求
+            AuthRequest auth = AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build();
+            
+            // 構建複製請求
+            CopyFileRequest request = CopyFileRequest.newBuilder()
+                    .setAuth(auth)
+                    .setFileId(fileId)
+                    .setTargetParentId(parentFolderId)
+                    .setNewName(targetInfo.getFileName())
+                    .build();
+            
+            // 調用主服務的複製API
+            CopyFileResponse response = getContextualBlockingStub()
+                    .withDeadlineAfter(uploadProperties.getTimeoutSeconds(), TimeUnit.SECONDS)
+                    .copyFile(request);
+            
+            if (response.getSuccess()) {
+                log.info("File copied successfully: {} → {}, new ID: {}", 
+                        fileId, targetPath, response.getNewFileId());
+                
+                // 返回成功結果，包含新檔案ID
+                return ProcessingResponse.builder()
+                        .success(true)
+                        .message("File copied successfully")
+                        .newFileId(response.getNewFileId())
+                        .build();
+            } else {
+                log.warn("Failed to copy file {}: {}", fileId, response.getErrorMessage());
+                return ProcessingResponse.builder()
+                        .success(false)
+                        .errorMessage("Copy failed: " + response.getErrorMessage())
+                        .build();
+            }
+            
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid copy request for file {}: {}", fileId, e.getMessage());
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Invalid target path: " + e.getMessage())
+                    .build();
+                    
+        } catch (StatusRuntimeException e) {
+            log.error("gRPC error during copy operation for file {}: {}", fileId, e.getStatus(), e);
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Server error: " + e.getStatus().getDescription())
+                    .build();
+                    
+        } catch (Exception e) {
+            log.error("Unexpected error during copy operation for file {}: {}", fileId, e.getMessage(), e);
+            return ProcessingResponse.builder()
+                    .success(false)
+                    .errorMessage("Internal error: " + e.getMessage())
+                    .build();
+        }
     }
     
     /**
@@ -609,9 +755,11 @@ public class GrpcClientService {
         
         try {
             LockFileRequest request = LockFileRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFileId(fileId)
-                .setUserId(userId)
-                .setUserToken(token)
                 .setTimeoutSeconds(600) // 10 分鐘
                 .build();
             
@@ -647,10 +795,12 @@ public class GrpcClientService {
         
         try {
             UnlockFileRequest request = UnlockFileRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(token)
+                    .setUserId(userId)
+                    .build())
                 .setFileId(fileId)
                 .setLockToken(lockToken != null ? lockToken : "")
-                .setUserId(userId)
-                .setUserToken(token)
                 .build();
             
             UnlockFileResponse response = getContextualBlockingStub()
@@ -690,6 +840,8 @@ public class GrpcClientService {
             return AuthenticationResponse.newBuilder()
                 .setSuccess(false)
                 .setErrorMessage("Authentication failed: " + e.getStatus().getDescription())
+                .setUsername(username)  // 保留請求的用戶名
+                .setRole("")            // 錯誤時沒有角色
                 .build();
         }
     }
@@ -701,6 +853,13 @@ public class GrpcClientService {
      */
     private Metadata createContextMetadata() {
         Metadata metadata = new Metadata();
+        
+        // 添加 API Key 用於主服務認證
+        if (grpcProperties.getApiKey() != null && !grpcProperties.getApiKey().isEmpty()) {
+            metadata.put(API_KEY_HEADER, grpcProperties.getApiKey());
+        } else {
+            log.warn("API Key not configured for gRPC client - authentication may fail");
+        }
         
         RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
         if (context != null) {
@@ -756,6 +915,182 @@ public class GrpcClientService {
         return null;
     }
     
+    /**
+     * 驗證 JWT 令牌的有效性和撤銷狀態
+     * 
+     * @param jwtToken JWT 令牌
+     * @param userId 用戶 ID（可選）
+     * @return 令牌驗證結果
+     */
+    public TokenValidationResponse validateJwtToken(String jwtToken, Long userId) {
+        if (jwtToken == null || jwtToken.trim().isEmpty()) {
+            return TokenValidationResponse.newBuilder()
+                    .setSuccess(false)
+                    .setIsValid(false)
+                    .setIsRevoked(false)
+                    .setErrorMessage("JWT token is required")
+                    .build();
+        }
+        
+        try {
+            TokenValidationRequest request = TokenValidationRequest.newBuilder()
+                    .setJwtToken(jwtToken)
+                    .setUserId(userId != null ? userId : 0L)
+                    .build();
+            
+            TokenValidationResponse response = getContextualBlockingStub()
+                    .withDeadlineAfter(uploadProperties.getTimeoutSeconds(), TimeUnit.SECONDS)
+                    .validateToken(request);
+            
+            return response;
+            
+        } catch (StatusRuntimeException e) {
+            log.error("Failed to validate JWT token", e);
+            return TokenValidationResponse.newBuilder()
+                    .setSuccess(false)
+                    .setIsValid(false)
+                    .setIsRevoked(false)
+                    .setErrorMessage("gRPC validation failed: " + e.getStatus().getDescription())
+                    .build();
+        } catch (Exception e) {
+            log.error("Unexpected error while validating JWT token", e);
+            return TokenValidationResponse.newBuilder()
+                    .setSuccess(false)
+                    .setIsValid(false)
+                    .setIsRevoked(false)
+                    .setErrorMessage("Unexpected error: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    /**
+     * 查詢檔案元資料
+     * 
+     * @param fileId 檔案 ID
+     * @return 檔案元資料，如果不存在則返回 null
+     */
+    public FileMetadata getFileMetadata(Long fileId) {
+        if (fileId == null) {
+            return null;
+        }
+        
+        try {
+            RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
+            if (context == null || !context.isAuthenticated()) {
+                log.warn("No authenticated context available for file metadata query");
+                return null;
+            }
+            
+            GetFileMetadataRequest request = GetFileMetadataRequest.newBuilder()
+                .setAuth(AuthRequest.newBuilder()
+                    .setJwtToken(context.getAuthToken())
+                    .setUserId(Long.parseLong(context.getUserId()))
+                    .build())
+                .setFileId(fileId)
+                .build();
+            
+            FileMetadataResponse response = getContextualBlockingStub()
+                .withDeadlineAfter(uploadProperties.getTimeoutSeconds(), TimeUnit.SECONDS)
+                .getFileMetadata(request);
+            
+            if (response.getSuccess() && response.hasFileInfo()) {
+                return convertToFileMetadata(response.getFileInfo());
+            } else {
+                log.debug("File metadata not found for ID: {}, error: {}", fileId, response.getErrorMessage());
+                return null;
+            }
+            
+        } catch (StatusRuntimeException e) {
+            log.error("Failed to get file metadata for ID: {}", fileId, e);
+            return null;
+        } catch (Exception e) {
+            log.error("Unexpected error while getting file metadata for ID: {}", fileId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 解析目標路徑並返回父資料夾ID和檔案名
+     * 
+     * @param targetPath 目標路徑，例如：/username/folder/newfile.txt
+     * @return TargetPathInfo 包含父資料夾ID和檔案名
+     */
+    private TargetPathInfo parseTargetPath(String targetPath) {
+        if (targetPath == null || targetPath.trim().isEmpty()) {
+            throw new IllegalArgumentException("Target path cannot be null or empty");
+        }
+        
+        String normalizedPath = targetPath.trim();
+        if (!normalizedPath.startsWith("/")) {
+            normalizedPath = "/" + normalizedPath;
+        }
+        
+        // 移除末尾的斜線
+        if (normalizedPath.endsWith("/") && normalizedPath.length() > 1) {
+            normalizedPath = normalizedPath.substring(0, normalizedPath.length() - 1);
+        }
+        
+        // 分離路徑和檔案名
+        int lastSlashIndex = normalizedPath.lastIndexOf('/');
+        if (lastSlashIndex <= 0) {
+            // 根路徑情況
+            throw new IllegalArgumentException("Invalid target path: " + targetPath);
+        }
+        
+        String parentPath = normalizedPath.substring(0, lastSlashIndex);
+        String fileName = normalizedPath.substring(lastSlashIndex + 1);
+        
+        // 根路徑的特殊處理
+        if (parentPath.isEmpty()) {
+            parentPath = "/";
+        }
+        
+        log.debug("Parsed target path '{}' → parent: '{}', file: '{}'", targetPath, parentPath, fileName);
+        
+        return new TargetPathInfo(parentPath, fileName);
+    }
+    
+    /**
+     * 查詢父資料夾ID
+     * 
+     * @param parentPath 父資料夾路徑
+     * @return 父資料夾ID，如果是根路徑則返回0
+     */
+    private Long resolveParentFolderId(String parentPath) {
+        if ("/".equals(parentPath)) {
+            return 0L; // 根資料夾
+        }
+        
+        // 使用路徑映射服務查詢父資料夾ID
+        Long parentId = pathMappingService.resolvePathToId(parentPath);
+        if (parentId == null) {
+            throw new IllegalArgumentException("Parent folder not found: " + parentPath);
+        }
+        
+        return parentId;
+    }
+    
+    /**
+     * 目標路徑解析結果
+     */
+    private static class TargetPathInfo {
+        private final String parentPath;
+        private final String fileName;
+        
+        public TargetPathInfo(String parentPath, String fileName) {
+            this.parentPath = parentPath;
+            this.fileName = fileName;
+        }
+        
+        public String getParentPath() {
+            return parentPath;
+        }
+        
+        public String getFileName() {
+            return fileName;
+        }
+    }
+
     /**
      * 轉換 FileInfo 為 FileMetadata
      */

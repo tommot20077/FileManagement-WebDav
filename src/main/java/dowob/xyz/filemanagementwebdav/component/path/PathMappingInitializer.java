@@ -1,10 +1,10 @@
 package dowob.xyz.filemanagementwebdav.component.path;
 
+import dowob.xyz.filemanagementwebdav.config.properties.WebDavPathMappingProperties;
 import dowob.xyz.filemanagementwebdav.service.GrpcClientService;
 import dowob.xyz.filemanagementwebdav.service.PathMappingService;
 import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -15,26 +15,28 @@ import java.util.concurrent.TimeUnit;
 /**
  * 路徑映射初始化器，負責啟動時預載入和定期同步路徑映射
  * 
+ * 從配置文件讀取同步間隔等參數，提供靈活的路徑映射管理功能。
+ * 
  * @author yuan
  * @version 1.0
  * @since 1.0
  */
+@Log4j2
 @Component
 public class PathMappingInitializer {
     
-    private static final Logger log = LoggerFactory.getLogger(PathMappingInitializer.class);
-    
     private final PathMappingService pathMappingService;
     private final GrpcClientService grpcClientService;
-    
-    private final int syncInterval = 300; // 同步間隔（秒），專用子服務中固定值
+    private final WebDavPathMappingProperties pathMappingProperties;
     
     @Autowired
     public PathMappingInitializer(
             PathMappingService pathMappingService,
-            GrpcClientService grpcClientService) {
+            GrpcClientService grpcClientService,
+            WebDavPathMappingProperties pathMappingProperties) {
         this.pathMappingService = pathMappingService;
         this.grpcClientService = grpcClientService;
+        this.pathMappingProperties = pathMappingProperties;
     }
     
     /**
@@ -67,22 +69,24 @@ public class PathMappingInitializer {
     
     /**
      * 定期同步路徑映射
-     * 使用 cron 表達式，每隔指定時間執行一次
+     * 使用配置文件中的間隔時間，通過 fixedDelayString 支援 SpEL 表達式
      */
-    @Scheduled(fixedDelay = 300000) // 300秒 = 5分鐘
+    @Scheduled(fixedDelayString = "#{@webDavPathMappingProperties.syncInterval * 1000}")
     public void syncPathMappings() {
-        if (syncInterval <= 0) {
+        int configuredSyncInterval = pathMappingProperties.getSyncInterval();
+        if (configuredSyncInterval <= 0) {
+            log.debug("Path mapping synchronization is disabled (syncInterval <= 0)");
             return;
         }
         
         CompletableFuture.runAsync(() -> {
             try {
-                log.debug("Starting path mapping synchronization...");
+                log.debug("開始路徑映射同步... (間隔: {}秒)", configuredSyncInterval);
                 long startTime = System.currentTimeMillis();
                 
                 // 獲取快取統計
                 var stats = pathMappingService.getCacheStats();
-                log.debug("Cache stats before sync: {}", stats);
+                log.debug("同步前快取統計: {}", stats);
                 
                 // TODO: 實作同步邏輯
                 // 1. 檢查快取中的過期項目
@@ -90,10 +94,10 @@ public class PathMappingInitializer {
                 // 3. 清理無效的映射
                 
                 long duration = System.currentTimeMillis() - startTime;
-                log.debug("Path mapping synchronization completed in {} ms", duration);
+                log.debug("路徑映射同步完成，耗時 {} 毫秒", duration);
                 
             } catch (Exception e) {
-                log.error("Failed to synchronize path mappings", e);
+                log.error("路徑映射同步失敗", e);
             }
         });
     }

@@ -58,7 +58,7 @@ class AuthenticationCacheTest {
         String userId = TestData.VALID_USER_ID;
         
         // When - 存入快取
-        cache.put(username, password, userId, true);
+        cache.put(username, password, userId, "USER", true);
         
         // Then - 應該能夠取回
         AuthenticationCache.AuthCacheEntry entry = cache.get(username, password);
@@ -112,7 +112,7 @@ class AuthenticationCacheTest {
         String password = "wrongpassword";
         
         // When - 快取失敗的認證結果
-        cache.put(username, password, null, false);
+        cache.put(username, password, null, null, false);
         
         // Then
         AuthenticationCache.AuthCacheEntry entry = cache.get(username, password);
@@ -146,9 +146,9 @@ class AuthenticationCacheTest {
         // Given - 添加多個用戶的快取
         String user1 = "user1";
         String user2 = "user2";
-        cache.put(user1, "pass1", "id1", true);
-        cache.put(user1, "pass2", "id1", true);  // 同一用戶，不同密碼
-        cache.put(user2, "pass3", "id2", true);
+        cache.put(user1, "pass1", "id1", "USER", true);
+        cache.put(user1, "pass2", "id1", "USER", true);  // 同一用戶，不同密碼
+        cache.put(user2, "pass3", "id2", "USER", true);
         
         // When - 使 user1 的快取失效
         cache.invalidateUser(user1);
@@ -163,9 +163,9 @@ class AuthenticationCacheTest {
     @DisplayName("測試清空所有快取")
     void testInvalidateAll() {
         // Given
-        cache.put("user1", "pass1", "id1", true);
-        cache.put("user2", "pass2", "id2", true);
-        cache.put("user3", "pass3", "id3", true);
+        cache.put("user1", "pass1", "id1", "USER", true);
+        cache.put("user2", "pass2", "id2", "USER", true);
+        cache.put("user3", "pass3", "id3", "USER", true);
         
         // When
         cache.invalidateAll();
@@ -195,7 +195,7 @@ class AuthenticationCacheTest {
                         String password = "pass" + i + "_" + j;
                         
                         // 寫入
-                        cache.put(username, password, "id" + i, true);
+                        cache.put(username, password, "id" + i, "USER", true);
                         
                         // 讀取
                         AuthenticationCache.AuthCacheEntry entry = cache.get(username, password);
@@ -244,12 +244,12 @@ class AuthenticationCacheTest {
     void testNullAndEmptyInputs(String input) {
         // 測試 null 和空字符串
         assertThatCode(() -> {
-            cache.put(input, TestData.VALID_PASSWORD, TestData.VALID_USER_ID, true);
+            cache.put(input, TestData.VALID_PASSWORD, TestData.VALID_USER_ID, "USER", true);
             cache.get(input, TestData.VALID_PASSWORD);
         }).doesNotThrowAnyException();
         
         assertThatCode(() -> {
-            cache.put(TestData.VALID_USERNAME, input, TestData.VALID_USER_ID, true);
+            cache.put(TestData.VALID_USERNAME, input, TestData.VALID_USER_ID, "USER", true);
             cache.get(TestData.VALID_USERNAME, input);
         }).doesNotThrowAnyException();
     }
@@ -262,7 +262,7 @@ class AuthenticationCacheTest {
         String userId = TestData.VALID_USER_ID;
         
         // When
-        cache.put(username, password, userId, true);
+        cache.put(username, password, userId, "USER", true);
         AuthenticationCache.AuthCacheEntry entry = cache.get(username, password);
         
         // Then
@@ -293,7 +293,7 @@ class AuthenticationCacheTest {
         
         // When & Then - 應該能夠正常處理
         assertThatCode(() -> {
-            cache.put(longUsername, longPassword, TestData.VALID_USER_ID, true);
+            cache.put(longUsername, longPassword, TestData.VALID_USER_ID, "USER", true);
             AuthenticationCache.AuthCacheEntry entry = cache.get(longUsername, longPassword);
             assertThat(entry).isNotNull();
         }).doesNotThrowAnyException();
@@ -303,7 +303,7 @@ class AuthenticationCacheTest {
     @DisplayName("測試快取統計信息")
     void testCacheStats() {
         // Given
-        cache.put("user1", "pass1", "id1", true);
+        cache.put("user1", "pass1", "id1", "USER", true);
         cache.get("user1", "pass1");  // 命中
         cache.get("user2", "pass2");  // 未命中
         
@@ -317,6 +317,34 @@ class AuthenticationCacheTest {
     }
     
     @Test
+    @DisplayName("測試角色資訊快取")
+    void testCacheWithRole() {
+        // Given
+        String username = TestData.VALID_USERNAME;
+        String password = TestData.VALID_PASSWORD;
+        String userId = TestData.VALID_USER_ID;
+        String adminRole = "ADMIN";
+        String userRole = "USER";
+        
+        // When - 快取管理員角色
+        cache.put(username, password, userId, adminRole, true);
+        
+        // Then
+        AuthenticationCache.AuthCacheEntry entry = cache.get(username, password);
+        assertThat(entry).isNotNull();
+        assertThat(entry.getRole()).isEqualTo(adminRole);
+        assertThat(entry.isAuthenticated()).isTrue();
+        
+        // When - 更新為普通用戶角色
+        cache.put(username, password, userId, userRole, true);
+        
+        // Then
+        entry = cache.get(username, password);
+        assertThat(entry).isNotNull();
+        assertThat(entry.getRole()).isEqualTo(userRole);
+    }
+    
+    @Test
     @DisplayName("測試相同用戶不同密碼的快取")
     void testSameUserDifferentPasswords() {
         // Given
@@ -325,8 +353,8 @@ class AuthenticationCacheTest {
         String password2 = "password2";
         
         // When
-        cache.put(username, password1, TestData.VALID_USER_ID, true);
-        cache.put(username, password2, TestData.VALID_USER_ID, false);
+        cache.put(username, password1, TestData.VALID_USER_ID, "USER", true);
+        cache.put(username, password2, TestData.VALID_USER_ID, "USER", false);
         
         // Then - 應該分別快取
         AuthenticationCache.AuthCacheEntry entry1 = cache.get(username, password1);

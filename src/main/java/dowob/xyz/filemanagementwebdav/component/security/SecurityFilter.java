@@ -3,6 +3,7 @@ package dowob.xyz.filemanagementwebdav.component.security;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import dowob.xyz.filemanagementwebdav.component.service.WebDavToggleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
@@ -25,10 +26,11 @@ import java.io.IOException;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@Order(1) // 確保在其他過濾器之前執行
+@Order(0) // 最先執行，進行安全檢查（API key、IP 白名單、速率限制等）
 public class SecurityFilter implements Filter {
     
     private final CommonSecurityService securityService;
+    private final WebDavToggleService webDavToggleService;
     
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
@@ -43,10 +45,16 @@ public class SecurityFilter implements Filter {
         HttpServletResponse httpResponse = (HttpServletResponse) response;
         
         try {
-            // 創建請求上下文
+            // 1. 首先檢查 WebDAV 服務是否啟用
+            if (!webDavToggleService.isServiceAvailable()) {
+                handleServiceUnavailable(httpResponse);
+                return;
+            }
+            
+            // 2. 創建請求上下文
             CommonSecurityService.RequestContext context = createRequestContext(httpRequest);
             
-            // 執行安全檢查
+            // 3. 執行安全檢查
             CommonSecurityService.SecurityCheckResult result = securityService.performSecurityCheck(context);
             
             if (!result.isAllowed()) {
@@ -55,10 +63,10 @@ public class SecurityFilter implements Filter {
                 return;
             }
             
-            // 添加安全標頭
+            // 4. 添加安全標頭
             addSecurityHeaders(httpResponse);
             
-            // 繼續過濾鏈
+            // 5. 繼續過濾鏈
             chain.doFilter(request, response);
             
         } catch (Exception e) {
@@ -142,6 +150,26 @@ public class SecurityFilter implements Filter {
         return null; // 未認證用戶
     }
     
+    /**
+     * 處理服務不可用情況
+     */
+    private void handleServiceUnavailable(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        response.setContentType("application/json;charset=UTF-8");
+        response.setHeader("X-Service-Status", "DISABLED");
+        response.setHeader("Retry-After", "300"); // 建議 5 分鐘後重試
+        
+        String message = webDavToggleService.getServiceUnavailableMessage();
+        
+        response.getWriter().write(String.format(
+            "{\"error\":\"Service Unavailable\",\"message\":\"%s\",\"timestamp\":\"%s\",\"status\":503}", 
+            message,
+            java.time.LocalDateTime.now()
+        ));
+        
+        log.warn("WebDAV service unavailable - Request rejected");
+    }
+
     /**
      * 處理安全違規
      */

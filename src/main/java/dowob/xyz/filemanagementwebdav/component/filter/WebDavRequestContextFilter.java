@@ -12,22 +12,22 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * 請求上下文過濾器
+ * WebDAV 請求上下文過濾器
  * 
  * 在每個請求開始時設置上下文信息，請求結束時清理
  * 確保整個請求生命週期內都能訪問到客戶端信息
  * 
  * @author yuan
  * @program FileManagement-WebDAV
- * @ClassName RequestContextFilter
+ * @ClassName WebDavRequestContextFilter
  * @create 2025/8/5
  * @Version 1.0
  **/
 @Slf4j
-@Component
-@Order(1)
+@Component("webDavRequestContextFilter")
+@Order(1) // 在 SecurityFilter 之後執行，設置請求上下文
 @RequiredArgsConstructor
-public class RequestContextFilter implements Filter {
+public class WebDavRequestContextFilter implements Filter {
     
     private final ClientIpResolver clientIpResolver;
     
@@ -75,11 +75,11 @@ public class RequestContextFilter implements Filter {
     
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        log.info("RequestContextFilter initialized");
+        log.info("WebDAV RequestContextFilter initialized");
     }
     
     @Override
     public void destroy() {
-        log.info("RequestContextFilter destroyed");
+        log.info("WebDAV RequestContextFilter destroyed");
     }
 }

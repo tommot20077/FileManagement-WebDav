@@ -42,11 +42,12 @@ public class AuthenticationCache {
     public static class AuthCacheEntry {
         private final String userId;
         private final String username;
+        private final String role;
         private final boolean authenticated;
         private final long timestamp;
         
         /**
-         * 建構身份驗證快取項目。
+         * 建構身份驗證快取項目，包含完整的用戶身份資訊。
          * <p>
          * 時間戳記會自動設定為當前系統時間（毫秒）。
          * 
@@ -54,9 +55,10 @@ public class AuthenticationCache {
          * @param username 用戶名稱，不可為 {@code null}
          * @param authenticated 是否驗證成功
          */
-        public AuthCacheEntry(String userId, String username, boolean authenticated) {
+        public AuthCacheEntry(String userId, String username, String role, boolean authenticated) {
             this.userId = userId;
             this.username = username;
+            this.role = role;
             this.authenticated = authenticated;
             this.timestamp = System.currentTimeMillis();
         }
@@ -77,6 +79,18 @@ public class AuthenticationCache {
          */
         public String getUsername() {
             return username;
+        }
+        
+        /**
+         * 取得用戶角色。
+         * <p>
+         * 返回用戶的系統角色，用於權限控制和存取管理。
+         * 
+         * @return 用戶角色字串，例如 ADMIN、USER 等
+         * @since 1.0
+         */
+        public String getRole() {
+            return role;
         }
         
         /**
@@ -167,13 +181,29 @@ public class AuthenticationCache {
      * @param userId 用戶識別碼，可以為 {@code null}
      * @param authenticated 身份驗證是否成功
      */
-    public void put(String username, String password, String userId, boolean authenticated) {
+    public void put(String username, String password, String userId, String role, boolean authenticated) {
         String cacheKey = generateCacheKey(username, password);
-        AuthCacheEntry entry = new AuthCacheEntry(userId, username, authenticated);
+        AuthCacheEntry entry = new AuthCacheEntry(userId, username, role, authenticated);
         cache.put(cacheKey, entry);
         
-        log.debug("已快取使用者驗證結果：{}，驗證狀態：{}", 
-                username, authenticated);
+        log.debug("已快取使用者驗證結果：{}，角色：{}，驗證狀態：{}", 
+                username, role, authenticated);
+    }
+    
+    /**
+     * 將身份驗證結果儲存至快取中（向後相容版本）。
+     * <p>
+     * 此方法保留向後相容性，但建議使用包含角色資訊的新版本。
+     * 
+     * @param username 用戶名稱
+     * @param password 用戶密碼
+     * @param userId 用戶識別碼
+     * @param authenticated 身份驗證是否成功
+     * @deprecated 使用 {@link #put(String, String, String, String, boolean)}
+     */
+    @Deprecated
+    public void put(String username, String password, String userId, boolean authenticated) {
+        put(username, password, userId, null, authenticated);
     }
     
     /**

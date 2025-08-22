@@ -24,4 +24,5 @@ public class ProcessingResponse {
     private FileMetadata metadata;
     private String lockToken; // For LOCK operation
     private String message; // For operation result message
+    private Long newFileId; // For MOVE/COPY operation, the resulting file ID
 }

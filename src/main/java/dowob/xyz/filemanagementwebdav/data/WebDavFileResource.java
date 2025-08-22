@@ -1,7 +1,6 @@
 package dowob.xyz.filemanagementwebdav.data;
 
 import dowob.xyz.filemanagementwebdav.customerenum.Operation;
-import dowob.xyz.filemanagementwebdav.data.dto.AuthInfoDto;
 import dowob.xyz.filemanagementwebdav.service.FileProcessingService;
 import io.milton.common.Path;
 import io.milton.http.Auth;
@@ -59,10 +58,17 @@ public class WebDavFileResource implements FileResource, PropFindableResource, D
 
     @Override
     public Object authenticate(String username, String password) {
-        return new AuthInfoDto(username, password);
+        // 檢查是否已經有認證信息（從上下文獲取）
+        io.milton.http.Auth auth = dowob.xyz.filemanagementwebdav.context.MiltonRequestHolder.getAuth();
+        if (auth != null && auth.getTag() != null) {
+            // 已經認證過，直接返回認證對象
+            return auth.getTag();
+        }
+        
+        // 否則不在資源級別處理認證，返回 null 讓 SecurityManager 處理
+        return null;
     }
-
-
+    
     @Override
     public boolean authorise(Request request, Request.Method method, Auth auth) {
         return true;

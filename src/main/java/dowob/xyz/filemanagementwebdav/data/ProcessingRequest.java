@@ -21,6 +21,7 @@ public class ProcessingRequest {
     private String path;
     private Operation operation; // READ, WRITE, DELETE, MOVE, COPY, LIST, MKCOL, PUT, LOCK, UNLOCK
     private String targetPath; // For MOVE/COPY operations
+    private Long fileId; // File ID for operations that require it
     private String contentType;
     private Long contentLength;
     private InputStream dataStream;

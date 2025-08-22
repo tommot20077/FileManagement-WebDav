@@ -42,6 +42,9 @@ service FileProcessingService {
     // 用戶認證
     rpc AuthenticateUser(AuthenticationRequest) returns (AuthenticationResponse);
     
+    // 驗證令牌
+    rpc ValidateToken(TokenValidationRequest) returns (TokenValidationResponse);
+    
     // 檢查權限
     rpc CheckPermission(PermissionRequest) returns (PermissionResponse);
     
@@ -57,6 +60,14 @@ service FileProcessingService {
     rpc FindFiles(FindFilesRequest) returns (FindFilesResponse);
 }
 
+// ==================== 認證相關消息 ====================
+
+// 統一認證請求結構
+message AuthRequest {
+    string jwt_token = 1;     // JWT 令牌 - 身份驗證的唯一來源
+    int64 user_id = 2;        // 可選：用於額外驗證令牌歸屬
+}
+
 // ==================== 檔案上傳相關消息 ====================
 
 // 檔案上傳分塊 - 用於 streaming 上傳
@@ -70,12 +81,11 @@ message FileUploadChunk {
 
 // 檔案上傳元資料
 message FileUploadMetadata {
-    int64 user_id = 1;
-    string user_token = 2;
-    string filename = 3;
-    int64 parent_folder_id = 4;
-    int64 total_size = 5;
-    string mime_type = 6;
+    AuthRequest auth = 1;
+    string filename = 2;
+    int64 parent_folder_id = 3;
+    int64 total_size = 4;
+    string mime_type = 5;
 }
 
 // 上傳校驗資訊
@@ -96,13 +106,12 @@ message UploadProgress {
 
 // 簡單上傳請求 - 用於小檔案
 message UploadFileRequest {
-    int64 user_id = 1;
-    string user_token = 2;
-    string filename = 3;
-    int64 parent_folder_id = 4;
-    string md5 = 5;
-    bytes content = 6;
-    string mime_type = 7;
+    AuthRequest auth = 1;
+    string filename = 2;
+    int64 parent_folder_id = 3;
+    string md5 = 4;
+    bytes content = 5;
+    string mime_type = 6;
 }
 
 // 上傳回應
@@ -118,10 +127,9 @@ message UploadFileResponse {
 
 // 獲取檔案請求 - 基於ID
 message GetFileRequest {
-    int64 file_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
-    string range = 4;  // 可選的 Range 請求
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    string range = 3;  // 可選的 Range 請求
 }
 
 // 檔案內容回應
@@ -134,9 +142,8 @@ message FileContentResponse {
 
 // 獲取元資料請求
 message GetFileMetadataRequest {
-    int64 file_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
 }
 
 // 檔案元資料回應
@@ -163,9 +170,8 @@ message FileInfo {
 
 // 刪除檔案請求
 message DeleteFileRequest {
-    int64 file_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
 }
 
 // 刪除檔案回應
@@ -177,11 +183,10 @@ message DeleteFileResponse {
 
 // 移動檔案請求
 message MoveFileRequest {
-    int64 file_id = 1;
-    int64 new_parent_id = 2;
-    string new_name = 3;
-    int64 user_id = 4;
-    string user_token = 5;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    int64 new_parent_id = 3;
+    string new_name = 4;
 }
 
 // 移動檔案回應
@@ -194,11 +199,10 @@ message MoveFileResponse {
 
 // 複製檔案請求
 message CopyFileRequest {
-    int64 file_id = 1;
-    int64 target_parent_id = 2;
-    string new_name = 3;
-    int64 user_id = 4;
-    string user_token = 5;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    int64 target_parent_id = 3;
+    string new_name = 4;
 }
 
 // 複製檔案回應
@@ -213,11 +217,8 @@ message CopyFileResponse {
 
 // 列出資料夾請求
 message ListFolderRequest {
-    int64 folder_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
-    int32 page = 4;
-    int32 page_size = 5;
+    AuthRequest auth = 1;
+    int64 folder_id = 2;
 }
 
 // 列出資料夾回應
@@ -230,10 +231,9 @@ message ListFolderResponse {
 
 // 創建資料夾請求
 message CreateFolderRequest {
-    int64 parent_id = 1;
-    string folder_name = 2;
-    int64 user_id = 3;
-    string user_token = 4;
+    AuthRequest auth = 1;
+    int64 parent_id = 2;
+    string folder_name = 3;
 }
 
 // 創建資料夾回應
@@ -258,14 +258,15 @@ message AuthenticationResponse {
     string jwt_token = 2;
     int64 user_id = 3;
     string error_message = 4;
+    string username = 5;      // 用戶名稱
+    string role = 6;          // 用戶角色
 }
 
 // 權限請求
 message PermissionRequest {
-    int64 file_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
-    string operation = 4;  // READ, WRITE, DELETE, etc.
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    string operation = 3;  // READ, WRITE, DELETE, etc.
 }
 
 // 權限回應
@@ -274,14 +275,31 @@ message PermissionResponse {
     string message = 2;
 }
 
+// 令牌驗證請求
+message TokenValidationRequest {
+    string jwt_token = 1;
+    int64 user_id = 2;    // 可選：用於驗證令牌歸屬
+}
+
+// 令牌驗證回應
+message TokenValidationResponse {
+    bool success = 1;
+    bool is_valid = 2;        // 令牌是否有效（未過期且未撤銷）
+    bool is_revoked = 3;      // 令牌是否已被撤銷
+    int64 user_id = 4;        // 令牌對應的用戶 ID
+    string username = 5;      // 令牌對應的用戶名
+    string role = 6;          // 用戶角色
+    int64 expires_at = 7;     // 令牌過期時間（Unix 時間戳）
+    string error_message = 8; // 錯誤信息
+}
+
 // ==================== 檔案鎖定相關消息 ====================
 
 // 鎖定檔案請求
 message LockFileRequest {
-    int64 file_id = 1;
-    int64 user_id = 2;
-    string user_token = 3;
-    int32 timeout_seconds = 4;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    int32 timeout_seconds = 3;
 }
 
 // 鎖定檔案回應
@@ -293,10 +311,9 @@ message LockFileResponse {
 
 // 解鎖檔案請求
 message UnlockFileRequest {
-    int64 file_id = 1;
-    string lock_token = 2;
-    int64 user_id = 3;
-    string user_token = 4;
+    AuthRequest auth = 1;
+    int64 file_id = 2;
+    string lock_token = 3;
 }
 
 // 解鎖檔案回應
@@ -310,13 +327,12 @@ message UnlockFileResponse {
 
 // 查找檔案請求
 message FindFilesRequest {
-    int64 user_id = 1;
-    string user_token = 2;
-    string query = 3;           // 搜尋關鍵字
-    int64 parent_folder_id = 4; // 可選：限定在特定資料夾下
-    string file_type = 5;        // 可選：檔案類型過濾
-    int32 page = 6;
-    int32 page_size = 7;
+    AuthRequest auth = 1;
+    string query = 2;           // 搜尋關鍵字
+    int64 parent_folder_id = 3; // 可選：限定在特定資料夾下
+    string file_type = 4;        // 可選：檔案類型過濾
+    int32 page = 5;
+    int32 page_size = 6;
 }
 
 // 查找檔案回應

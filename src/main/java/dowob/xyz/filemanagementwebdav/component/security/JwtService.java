@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
-import java.util.List;
 
 /**
  * JWT 服務
@@ -72,7 +71,7 @@ public class JwtService {
             // 提取用戶信息
             String userId = decodedJWT.getSubject();
             String username = decodedJWT.getClaim("username").asString();
-            List<String> roles = decodedJWT.getClaim("roles").asList(String.class);
+            String role = decodedJWT.getClaim("role").asString();
             
             // 檢查必要字段
             if (userId == null || username == null) {
@@ -81,7 +80,7 @@ public class JwtService {
             
             log.debug("JWT validation successful for user: {}", username);
             
-            return JwtValidationResult.valid(userId, username, roles, decodedJWT);
+            return JwtValidationResult.valid(userId, username, role, decodedJWT);
             
         } catch (JWTVerificationException e) {
             log.debug("JWT validation failed: {}", e.getMessage());
@@ -138,22 +137,22 @@ public class JwtService {
         private final String errorMessage;
         private final String userId;
         private final String username;
-        private final List<String> roles;
+        private final String role;
         private final DecodedJWT decodedJWT;
         
         private JwtValidationResult(boolean valid, String errorMessage, String userId, 
-                                  String username, List<String> roles, DecodedJWT decodedJWT) {
+                                  String username, String role, DecodedJWT decodedJWT) {
             this.valid = valid;
             this.errorMessage = errorMessage;
             this.userId = userId;
             this.username = username;
-            this.roles = roles;
+            this.role = role;
             this.decodedJWT = decodedJWT;
         }
         
         public static JwtValidationResult valid(String userId, String username, 
-                                              List<String> roles, DecodedJWT decodedJWT) {
-            return new JwtValidationResult(true, null, userId, username, roles, decodedJWT);
+                                              String role, DecodedJWT decodedJWT) {
+            return new JwtValidationResult(true, null, userId, username, role, decodedJWT);
         }
         
         public static JwtValidationResult invalid(String errorMessage) {
@@ -177,8 +176,8 @@ public class JwtService {
             return username;
         }
         
-        public List<String> getRoles() {
-            return roles;
+        public String getRole() {
+            return role;
         }
         
         public DecodedJWT getDecodedJWT() {
@@ -188,8 +187,8 @@ public class JwtService {
         /**
          * 檢查用戶是否有指定角色
          */
-        public boolean hasRole(String role) {
-            return roles != null && roles.contains(role);
+        public boolean hasRole(String expectedRole) {
+            return role != null && role.equals(expectedRole);
         }
         
         /**

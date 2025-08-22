@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: FileManagement-WebDAV
+  profiles:
+    active: test
+
+server:
+  port: 8082
+
+# gRPC 配置 - 用於測試的配置
+grpc:
+  host: localhost
+  port: 9091  # 測試用端口
+
+# WebDAV 配置
+webdav:
+  auth:
+    cache:
+      max-size: 100
+      expire-minutes: 5
+  security:
+    realm: "FileManagement WebDAV Test"
+    jwt:
+      secret: "test-secret-key-for-development-only"
+      issuer: "FileManagement-Test"
+      revocation:
+        cache:
+          expire-minutes: 10
+          max-size: 100
+    ip:
+      whitelist:
+        enabled: false  # 測試時禁用白名單
+        ips:
+          - "127.0.0.1"
+          - "::1"
+          - "0:0:0:0:0:0:0:1"
+      blacklist:
+        ips: []
+    rate-limit:
+      ip-requests-per-minute: 1000
+      user-requests-per-minute: 2000
+      global-requests-per-second: 1000
+      cache-size: 1000
+    audit:
+      enabled: true
+      log-successful: true
+      log-failed: true
+      sensitive-paths:
+        - "/admin"
+        - "/api/users"
+  
+  # 路徑映射配置
+  path-mapping:
+    cache-size: 1000
+    cache-ttl: 300
+    sync-interval: 60
+
+  # 上傳配置
+  upload:
+    max-file-size: 10MB
+    buffer-size: 1024KB
+    timeout-seconds: 60
+    concurrent-uploads: 10
+    enable-resource-monitoring: true
+    enable-md5-verification: true
+
+# 日誌級別
+logging:
+  level:
+    dowob.xyz.filemanagementwebdav: DEBUG
+    io.milton: INFO
+    org.springframework.security: DEBUG

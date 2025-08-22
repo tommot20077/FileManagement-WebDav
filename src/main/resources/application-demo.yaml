@@ -11,6 +11,8 @@ server:
 grpc:
   host: localhost
   port: 9090
+  # API Key 用於與主服務認證
+  api-key: ${GRPC_API_KEY:your-secure-api-key-here}
 
 # WebDAV 配置
 # 注意：此為專用 WebDAV 子服務，所有核心功能都強制啟用

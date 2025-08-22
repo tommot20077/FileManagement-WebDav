@@ -1,6 +1,8 @@
 package dowob.xyz.filemanagementwebdav.component.security;
 
 import dowob.xyz.filemanagementwebdav.component.cache.AuthenticationCache;
+import dowob.xyz.filemanagementwebdav.context.AuthenticationContextManager;
+import dowob.xyz.filemanagementwebdav.context.MiltonRequestHolder;
 import dowob.xyz.filemanagementwebdav.context.RequestContextHolder;
 import dowob.xyz.filemanagementwebdav.service.GrpcClientService;
 import dowob.xyz.filemanagementwebdav.utils.LogUtils;
@@ -13,9 +15,6 @@ import io.milton.resource.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * WebDAV 安全管理器實現
@@ -38,6 +37,7 @@ public class WebDavSecurityManager implements SecurityManager {
     private final AuthenticationCache authCache;
     private final JwtService jwtService;
     private final JwtRevocationService jwtRevocationService;
+    private final AuthenticationContextManager authContextManager;
     
     /**
      * 驗證用戶憑證
@@ -64,7 +64,7 @@ public class WebDavSecurityManager implements SecurityManager {
                     return new AuthenticatedUser(
                         cacheEntry.getUserId(),
                         cacheEntry.getUsername(),
-                        null  // TODO: 可能需要在快取中也存儲角色信息
+                        cacheEntry.getRole()
                     );
                 } else {
                     log.debug("User {} authentication failed (cached result)", user);
@@ -138,7 +138,7 @@ public class WebDavSecurityManager implements SecurityManager {
         return new AuthenticatedUser(
             jwtResult.getUserId(),
             jwtResult.getUsername(),
-            jwtResult.getRoles()
+            jwtResult.getRole()
         );
     }
     
@@ -161,32 +161,72 @@ public class WebDavSecurityManager implements SecurityManager {
         xyz.dowob.filemanagement.grpc.AuthenticationResponse response = 
             grpcClientService.authenticate(user, password);
         
-        // 將結果存入快取
-        authCache.put(user, password, 
-                     response.getUserId() != 0 ? String.valueOf(response.getUserId()) : null, 
+        // 直接從 response 中獲取角色資訊，不需要再解析 JWT
+        String role = response.getRole();
+        String username = response.getUsername();
+        
+        // 確保 role 不為 null，設置默認值
+        if (role == null || role.trim().isEmpty()) {
+            role = "USER"; // 默認角色
+        }
+        
+        // 將結果存入快取（包含角色資訊）
+        String userIdStr = response.getSuccess() && response.getUserId() != 0 ? 
+                          String.valueOf(response.getUserId()) : 
+                          (response.getSuccess() ? "0" : null);
+        authCache.put(username != null && !username.isEmpty() ? username : user, 
+                     password, 
+                     userIdStr,
+                     role,
                      response.getSuccess());
         
         if (response.getSuccess()) {
+            // 使用從 response 獲取的 username，如果沒有則使用請求中的 user
+            String authenticatedUsername = username != null && !username.isEmpty() ? username : user;
+            
             // 設置認證用戶信息到請求上下文
             if (context != null) {
-                context.setAuthenticatedUser(String.valueOf(response.getUserId()), user);
+                context.setAuthenticatedUser(userIdStr, authenticatedUsername);
+                log.debug("Set authenticated user in context: userId={}, username={}", userIdStr, authenticatedUsername);
+            } else {
+                log.warn("RequestContext is null after authentication for user: {}", authenticatedUsername);
             }
             
             // 記錄認證成功
-            LogUtils.logAuthentication("PASSWORD_LOGIN", user, true, "WebDAV authentication successful");
+            LogUtils.logAuthentication("PASSWORD_LOGIN", authenticatedUsername, true, "WebDAV authentication successful");
             
-            // 返回認證結果對象，包含用戶信息
-            // 注意：新的 AuthenticationResponse 沒有 roles 欄位，使用空列表
-            return new AuthenticatedUser(
-                String.valueOf(response.getUserId()),
-                user,
-                new ArrayList<>()  // 角色信息需要從其他地方獲取
-            );
+            // 返回認證結果對象，包含用戶信息和角色
+            AuthenticatedUser authUser = new AuthenticatedUser(userIdStr, authenticatedUsername, role);
+            
+            // 將認證用戶信息存儲到 ThreadLocal 供後續使用
+            setAuthenticatedUserToContext(authUser);
+            
+            // 存儲到持久化的認證管理器
+            String sessionId = context != null ? context.getRequestId() : "milton-" + System.currentTimeMillis();
+            authContextManager.storeAuthentication(sessionId, userIdStr, authenticatedUsername);
+            
+            return authUser;
         } else {
             // 記錄認證失敗
             LogUtils.logAuthentication("PASSWORD_LOGIN", user, false, response.getErrorMessage());
             return null;
         }
+    }
+    
+    /**
+     * 設置認證用戶到上下文（確保在 Milton 的後續調用中可用）
+     */
+    private void setAuthenticatedUserToContext(AuthenticatedUser user) {
+        RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
+        if (context == null) {
+            // 如果上下文不存在，創建一個新的
+            context = RequestContextHolder.RequestContext.builder()
+                .requestId("milton-auth-" + System.currentTimeMillis())
+                .build();
+            RequestContextHolder.setContext(context);
+        }
+        context.setAuthenticatedUser(user.getUserId(), user.getUsername());
+        log.debug("Authenticated user set to context: {}", user.getUsername());
     }
     
     /**
@@ -216,6 +256,10 @@ public class WebDavSecurityManager implements SecurityManager {
         AuthenticatedUser user = (AuthenticatedUser) tag;
         log.debug("Authorizing user {} for method {} on resource {}", 
                   user.getUsername(), method, resource.getName());
+        
+        // 將認證信息存儲到 Milton 上下文
+        MiltonRequestHolder.setAuth(auth);
+        log.debug("Stored auth in Milton context for user: {}", user.getUsername());
         
         // TODO: 根據用戶角色和資源類型進行更細粒度的授權
         // 目前簡單地允許所有已認證用戶訪問
@@ -260,12 +304,26 @@ public class WebDavSecurityManager implements SecurityManager {
     public static class AuthenticatedUser {
         private final String userId;
         private final String username;
-        private final List<String> roles;
+        private final String role;
         
-        public AuthenticatedUser(String userId, String username, List<String> roles) {
+        public AuthenticatedUser(String userId, String username, String role) {
             this.userId = userId;
             this.username = username;
-            this.roles = roles;
+            this.role = role;
+        }
+        
+        /**
+         * 向後相容構造器：接受角色列表並使用第一個角色作為主要角色
+         * 
+         * @param userId 用戶 ID
+         * @param username 用戶名
+         * @param roles 角色列表
+         */
+        public AuthenticatedUser(String userId, String username, java.util.List<String> roles) {
+            this.userId = userId;
+            this.username = username;
+            // 使用第一個角色作為主要角色，如果列表為空則為 null
+            this.role = (roles != null && !roles.isEmpty()) ? roles.get(0) : null;
         }
         
         public String getUserId() {
@@ -276,12 +334,31 @@ public class WebDavSecurityManager implements SecurityManager {
             return username;
         }
         
-        public List<String> getRoles() {
-            return roles;
+        public String getRole() {
+            return role;
         }
         
-        public boolean hasRole(String role) {
-            return roles != null && roles.contains(role);
+        public boolean hasRole(String expectedRole) {
+            return role != null && role.equals(expectedRole);
+        }
+        
+        public boolean isAdmin() {
+            return "ADMIN".equals(role);
+        }
+        
+        /**
+         * 獲取用戶角色列表（向後相容方法）
+         * <p>
+         * 為了保持測試的向後相容性，將單一角色轉換為列表形式。
+         * 在新的架構中，每個用戶只有一個主要角色。
+         * 
+         * @return 角色列表，如果沒有角色則返回空列表
+         */
+        public java.util.List<String> getRoles() {
+            if (role == null || role.trim().isEmpty()) {
+                return java.util.Collections.emptyList();
+            }
+            return java.util.Collections.singletonList(role);
         }
     }
 }

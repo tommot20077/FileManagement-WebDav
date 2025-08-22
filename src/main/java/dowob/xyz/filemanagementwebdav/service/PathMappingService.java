@@ -3,12 +3,15 @@ package dowob.xyz.filemanagementwebdav.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import dowob.xyz.filemanagementwebdav.component.path.DuplicateNameHandler;
 import dowob.xyz.filemanagementwebdav.component.path.PathResolver;
+import dowob.xyz.filemanagementwebdav.component.path.WebDavPathConverter;
 import dowob.xyz.filemanagementwebdav.data.FileMetadata;
 import dowob.xyz.filemanagementwebdav.data.path.PathMapping;
 import dowob.xyz.filemanagementwebdav.data.path.PathNode;
+import dowob.xyz.filemanagementwebdav.context.RequestContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -35,6 +38,8 @@ public class PathMappingService {
     
     private final PathResolver pathResolver;
     private final DuplicateNameHandler duplicateNameHandler;
+    private final GrpcClientService grpcClientService;
+    private final WebDavPathConverter pathConverter;
     
     @Autowired
     public PathMappingService(
@@ -43,23 +48,45 @@ public class PathMappingService {
             Cache<Long, PathNode> userFileTreeCache,
             Cache<String, PathNode> folderContentCache,
             PathResolver pathResolver,
-            DuplicateNameHandler duplicateNameHandler) {
+            DuplicateNameHandler duplicateNameHandler,
+            @Lazy GrpcClientService grpcClientService,
+            WebDavPathConverter pathConverter) {
         this.pathToIdCache = pathToIdCache;
         this.idToPathCache = idToPathCache;
         this.userFileTreeCache = userFileTreeCache;
         this.folderContentCache = folderContentCache;
         this.pathResolver = pathResolver;
         this.duplicateNameHandler = duplicateNameHandler;
+        this.grpcClientService = grpcClientService;
+        this.pathConverter = pathConverter;
     }
     
     /**
      * 將 WebDAV 路徑解析為檔案 ID
      * 
-     * @param path 完整路徑（如 /user1/folder/file.txt）
+     * @param path 完整路徑（如 /dav/folder/file.txt）
      * @return 檔案 ID，如果路徑不存在則返回 null
      */
     public Long resolvePathToId(String path) {
-        String normalizedPath = pathResolver.normalizePath(path);
+        // 從上下文獲取當前用戶
+        RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
+        if (context == null || !context.isAuthenticated()) {
+            log.warn("No authenticated user in context for path: {}", path);
+            return null;
+        }
+        
+        String userId = context.getUserId();
+        
+        // 轉換路徑：/dav/path → /userId/path
+        String internalPath;
+        if (pathConverter.isWebDavPath(path)) {
+            internalPath = pathConverter.toInternalPath(path, userId);
+        } else {
+            // 如果不是 WebDAV 路徑，直接使用
+            internalPath = path;
+        }
+        
+        String normalizedPath = pathResolver.normalizePath(internalPath);
         
         // 先從快取查詢
         PathMapping cached = pathToIdCache.getIfPresent(normalizedPath);
@@ -79,25 +106,24 @@ public class PathMappingService {
             return 0L;
         }
         
-        // 從第一段開始（通常是用戶名）
-        String username = segments.get(0);
-        // TODO: 從主服務查詢用戶 ID
-        Long userId = getUserIdByUsername(username);
-        if (userId == null) {
-            log.debug("User not found for path: {}", path);
+        // 從第一段開始（現在是用戶 ID）
+        String userIdFromPath = segments.get(0);
+        Long userIdLong = Long.parseLong(userIdFromPath);
+        if (!userIdFromPath.equals(userId)) {
+            log.warn("User ID mismatch in path: {} vs context: {}", userIdFromPath, userId);
             return null;
         }
         
         // 獲取或建立用戶的檔案樹
-        PathNode root = getUserFileTree(userId);
+        PathNode root = getUserFileTree(userIdLong);
         if (root == null) {
-            log.debug("User file tree not found for userId: {}", userId);
+            log.debug("User file tree not found for userId: {}", userIdLong);
             return null;
         }
         
         // 逐層查找
         PathNode current = root;
-        StringBuilder currentPath = new StringBuilder("/").append(username);
+        StringBuilder currentPath = new StringBuilder("/").append(userId);
         
         for (int i = 1; i < segments.size(); i++) {
             String segment = segments.get(i);
@@ -116,7 +142,7 @@ public class PathMappingService {
         PathMapping mapping = PathMapping.builder()
                 .fullPath(normalizedPath)
                 .fileId(current.getFileId())
-                .userId(userId)
+                .userId(userIdLong)
                 .originalName(current.getOriginalName())
                 .webdavName(current.getWebdavName())
                 .parentId(current.getParentId())
@@ -149,10 +175,45 @@ public class PathMappingService {
             return cached.getFullPath();
         }
         
-        // TODO: 從主服務查詢檔案資訊並建構路徑
-        // 這需要遞迴查詢父資料夾直到根目錄
-        
-        return null;
+        try {
+            // 從主服務查詢檔案資訊並建構路徑
+            FileMetadata fileInfo = getFileInfoFromMainService(fileId);
+            if (fileInfo == null) {
+                log.debug("File not found for ID: {}", fileId);
+                return null;
+            }
+            
+            // 遞迴建構完整路徑
+            String fullPath = buildFullPath(fileInfo);
+            if (fullPath != null) {
+                // 獲取用戶名（從路徑的第一段提取或從上下文獲取）
+                String username = getCurrentUsername();
+                
+                // 快取結果
+                PathMapping mapping = PathMapping.builder()
+                        .fullPath(fullPath)
+                        .fileId(fileId)
+                        .userId(getCurrentUserId())
+                        .originalName(fileInfo.getName())
+                        .webdavName(fileInfo.getName())
+                        .parentId(fileInfo.getParentId() != null ? Long.valueOf(fileInfo.getParentId()) : null)
+                        .isDirectory(fileInfo.isDirectory())
+                        .lastAccess(LocalDateTime.now())
+                        .createTime(LocalDateTime.now())
+                        .build();
+                
+                pathToIdCache.put(fullPath, mapping);
+                idToPathCache.put(fileId, mapping);
+                
+                log.debug("Resolved path for ID {}: {}", fileId, fullPath);
+            }
+            
+            return fullPath;
+            
+        } catch (Exception e) {
+            log.error("Failed to resolve path for file ID: {}", fileId, e);
+            return null;
+        }
     }
     
     /**
@@ -332,10 +393,35 @@ public class PathMappingService {
         return userFileTreeCache.getIfPresent(userId);
     }
     
+    /**
+     * 通過用戶名查詢用戶 ID
+     * 
+     * @param username 用戶名
+     * @return 用戶 ID，如果找不到則返回 null
+     */
     private Long getUserIdByUsername(String username) {
-        // TODO: 實作從主服務查詢用戶 ID
-        // 暫時返回模擬值
-        return username.hashCode() > 0 ? (long) username.hashCode() : 1L;
+        try {
+            // 使用 FindFiles API 查詢用戶根目錄以確認用戶存在
+            // 由於我們需要用戶 ID 但沒有直接的用戶查詢 API，
+            // 我們可以通過認證上下文或快取來獲取
+            
+            // 首先嘗試從當前認證上下文獲取
+            // 這是最常見的情況，因為 WebDAV 路徑通常是當前用戶的路徑
+            String contextUsername = getCurrentUsername();
+            if (username.equals(contextUsername)) {
+                return getCurrentUserId();
+            }
+            
+            // TODO: 如果需要查詢其他用戶，需要實現跨用戶查詢機制
+            // 暫時只支持當前用戶的路徑解析
+            log.warn("Cross-user path resolution not implemented. Username: {}, Current: {}", 
+                    username, contextUsername);
+            return null;
+            
+        } catch (Exception e) {
+            log.error("Failed to get user ID for username: {}", username, e);
+            return null;
+        }
     }
     
     private FileMetadata copyFileMetadata(FileMetadata source) {
@@ -350,5 +436,103 @@ public class PathMappingService {
                 .modifiedTimestamp(source.getModifiedTimestamp())
                 .parentId(source.getParentId())
                 .build();
+    }
+    
+    /**
+     * 獲取當前認證上下文中的用戶名
+     * 
+     * @return 當前用戶名，如果未認證則返回 null
+     */
+    private String getCurrentUsername() {
+        try {
+            RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
+            if (context != null && context.isAuthenticated()) {
+                return context.getUsername();
+            }
+            log.debug("No authenticated user context available");
+            return null;
+        } catch (Exception e) {
+            log.warn("Failed to get current username", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 獲取當前認證上下文中的用戶 ID
+     * 
+     * @return 當前用戶 ID，如果未認證則返回 null
+     */
+    private Long getCurrentUserId() {
+        try {
+            RequestContextHolder.RequestContext context = RequestContextHolder.getContext();
+            if (context != null && context.isAuthenticated()) {
+                try {
+                    return Long.parseLong(context.getUserId());
+                } catch (NumberFormatException e) {
+                    log.warn("Invalid user ID format: {}", context.getUserId());
+                    return null;
+                }
+            }
+            log.debug("No authenticated user context available");
+            return null;
+        } catch (Exception e) {
+            log.warn("Failed to get current user ID", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 從主服務查詢檔案資訊
+     * 
+     * @param fileId 檔案 ID
+     * @return 檔案資訊，如果不存在則返回 null
+     */
+    private FileMetadata getFileInfoFromMainService(Long fileId) {
+        try {
+            return grpcClientService.getFileMetadata(fileId);
+        } catch (Exception e) {
+            log.error("Failed to query file metadata for ID: {}", fileId, e);
+            return null;
+        }
+    }
+    
+    /**
+     * 遞迴建構檔案的完整路徑
+     * 
+     * @param fileInfo 檔案資訊
+     * @return 完整路徑
+     */
+    private String buildFullPath(FileMetadata fileInfo) {
+        try {
+            List<String> pathSegments = new ArrayList<>();
+            FileMetadata current = fileInfo;
+            
+            // 遞迴向上查找父資料夾
+            while (current != null && current.getParentId() != null) {
+                pathSegments.add(0, current.getName()); // 添加到開頭
+                
+                // 查詢父資料夾資訊
+                current = getFileInfoFromMainService(Long.valueOf(current.getParentId()));
+                
+                // 防止無限循環
+                if (pathSegments.size() > 100) {
+                    log.warn("Path too deep, possible circular reference for file: {}", fileInfo.getId());
+                    break;
+                }
+            }
+            
+            // 添加用戶名作為根路徑
+            String username = getCurrentUsername();
+            if (username != null) {
+                pathSegments.add(0, username);
+            }
+            
+            // 建構完整路徑
+            return "/" + String.join("/", pathSegments);
+            
+        } catch (Exception e) {
+            log.error("Failed to build full path for file: {}", fileInfo.getId(), e);
+            return null;
+        }
     }
 }

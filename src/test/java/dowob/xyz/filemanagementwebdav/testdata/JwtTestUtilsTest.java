@@ -82,7 +82,7 @@ class JwtTestUtilsTest {
         JwtTestUtils.assertUserInfo(validResult, 
             JwtTestUtils.DEFAULT_TEST_USER_ID, 
             JwtTestUtils.DEFAULT_TEST_USERNAME, 
-            JwtTestUtils.DEFAULT_TEST_ROLES);
+            JwtTestUtils.DEFAULT_TEST_ROLE);
         
         // When & Then - Expired token
         JwtService.JwtValidationResult expiredResult = JwtTestUtils.validateToken(expiredToken);

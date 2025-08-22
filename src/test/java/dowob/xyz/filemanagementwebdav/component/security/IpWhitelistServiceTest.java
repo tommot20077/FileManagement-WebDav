@@ -1,10 +1,14 @@
 package dowob.xyz.filemanagementwebdav.component.security;
 
+import dowob.xyz.filemanagementwebdav.config.properties.WebDavSecurityProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import static org.mockito.Mockito.when;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -34,6 +38,18 @@ class IpWhitelistServiceTest {
     
     private IpWhitelistService ipWhitelistService;
     
+    @Mock
+    private WebDavSecurityProperties securityProperties;
+    
+    @Mock
+    private WebDavSecurityProperties.IpConfig ipConfig;
+    
+    @Mock
+    private WebDavSecurityProperties.IpConfig.WhitelistConfig whitelistConfig;
+    
+    @Mock
+    private WebDavSecurityProperties.IpConfig.BlacklistConfig blacklistConfig;
+    
     // ===== 測試用常量 =====
     
     private static final String VALID_IP_1 = "192.168.1.100";
@@ -50,8 +66,16 @@ class IpWhitelistServiceTest {
     
     @BeforeEach
     void setUp() {
+        // 設置 mock 物件的預設行為
+        when(securityProperties.getIp()).thenReturn(ipConfig);
+        when(ipConfig.getWhitelist()).thenReturn(whitelistConfig);
+        when(ipConfig.getBlacklist()).thenReturn(blacklistConfig);
+        when(whitelistConfig.isEnabled()).thenReturn(false);
+        when(whitelistConfig.getIps()).thenReturn(Collections.emptyList());
+        when(blacklistConfig.getIps()).thenReturn(Collections.emptyList());
+        
         // 默認創建啟用白名單的服務（專用 WebDAV 子服務）
-        ipWhitelistService = new IpWhitelistService();
+        ipWhitelistService = new IpWhitelistService(securityProperties);
     }
     
     // ===== 構造函數和初始化測試 =====
@@ -59,11 +83,16 @@ class IpWhitelistServiceTest {
     @Test
     @DisplayName("測試服務初始化（專用子服務預設啟用）")
     void testServiceInitializationWithEnabledWhitelist() {
-        // Given & When
-        IpWhitelistService service = new IpWhitelistService(Collections.emptyList(), Collections.emptyList());
+        // Given
+        when(whitelistConfig.isEnabled()).thenReturn(false);
+        when(whitelistConfig.getIps()).thenReturn(Collections.emptyList());
+        when(blacklistConfig.getIps()).thenReturn(Collections.emptyList());
+        
+        // When
+        IpWhitelistService service = new IpWhitelistService(securityProperties);
         
         // Then
-        assertThat(service.isEnabled()).isTrue(); // 專用子服務中白名單預設啟用
+        assertThat(service.isEnabled()).isFalse(); // 依據配置
         assertThat(service.isWhitelisted("127.0.0.1")).isTrue(); // 本地IP自動在白名單中
         assertThat(service.isBlacklisted(EXTERNAL_IP)).isFalse();
     }
@@ -74,9 +103,12 @@ class IpWhitelistServiceTest {
         // Given
         List<String> whitelistIps = Arrays.asList(VALID_IP_1, CIDR_RANGE);
         List<String> blacklistIps = Arrays.asList(EXTERNAL_IP);
+        when(whitelistConfig.isEnabled()).thenReturn(true);
+        when(whitelistConfig.getIps()).thenReturn(whitelistIps);
+        when(blacklistConfig.getIps()).thenReturn(blacklistIps);
         
         // When
-        IpWhitelistService service = new IpWhitelistService(whitelistIps, blacklistIps);
+        IpWhitelistService service = new IpWhitelistService(securityProperties);
         
         // Then
         assertThat(service.isEnabled()).isTrue();
@@ -88,8 +120,13 @@ class IpWhitelistServiceTest {
     @Test
     @DisplayName("測試預設添加本地IP到白名單")
     void testDefaultLocalIpsAddedToWhitelist() {
-        // Given & When
-        IpWhitelistService service = new IpWhitelistService(Collections.emptyList(), Collections.emptyList());
+        // Given
+        when(whitelistConfig.isEnabled()).thenReturn(false);
+        when(whitelistConfig.getIps()).thenReturn(Collections.emptyList());
+        when(blacklistConfig.getIps()).thenReturn(Collections.emptyList());
+        
+        // When
+        IpWhitelistService service = new IpWhitelistService(securityProperties);
         
         // Then - 本地IP應該被自動添加到白名單
         assertThat(service.isWhitelisted("127.0.0.1")).isTrue();
@@ -103,13 +140,13 @@ class IpWhitelistServiceTest {
     @Test
     @DisplayName("測試啟用白名單時的默認行為")
     void testEnabledWhitelistDefaultBehavior() {
-        // Given - 白名單已啟用（專用子服務預設）
-        assertThat(ipWhitelistService.isEnabled()).isTrue();
+        // Given - 在 setup 中白名單被設置為 disabled
+        assertThat(ipWhitelistService.isEnabled()).isFalse();
         
-        // When & Then - 本地IP應該在白名單中，外部IP不在
+        // When & Then - 即使白名單未啟用，本地IP仍應該被允許
         assertThat(ipWhitelistService.isWhitelisted("127.0.0.1")).isTrue(); // 本地IP
         assertThat(ipWhitelistService.isWhitelisted("192.168.1.1")).isTrue(); // 私有網路
-        assertThat(ipWhitelistService.isWhitelisted(EXTERNAL_IP)).isFalse(); // 外部IP不在白名單中
+        assertThat(ipWhitelistService.isWhitelisted(EXTERNAL_IP)).isTrue(); // 白名單未啟用時，外部IP也被允許
     }
     
     @Test
@@ -418,10 +455,10 @@ class IpWhitelistServiceTest {
         String stats = service.getWhitelistStats();
         
         // Then
-        assertThat(stats).contains("Whitelist");
-        assertThat(stats).contains("IPs:");
-        assertThat(stats).contains("Ranges:");
-        assertThat(stats).contains("Cache hits:");
+        assertThat(stats).contains("白名單");
+        assertThat(stats).contains("IP:");
+        assertThat(stats).contains("範圍:");
+        assertThat(stats).contains("快取命中:");
     }
     
     @Test
@@ -435,10 +472,10 @@ class IpWhitelistServiceTest {
         String stats = service.getBlacklistStats();
         
         // Then
-        assertThat(stats).contains("Blacklist");
-        assertThat(stats).contains("IPs:");
-        assertThat(stats).contains("Ranges:");
-        assertThat(stats).contains("Cache hits:");
+        assertThat(stats).contains("黑名單");
+        assertThat(stats).contains("IP:");
+        assertThat(stats).contains("範圍:");
+        assertThat(stats).contains("快取命中:");
     }
     
     // ===== 併發測試 =====
@@ -511,7 +548,7 @@ class IpWhitelistServiceTest {
         executor.shutdown();
         
         // Then - 應該沒有並發問題
-        assertThat(service.getWhitelistStats()).contains("Whitelist");
+        assertThat(service.getWhitelistStats()).contains("白名單");
     }
     
     // ===== 邊界情況和特殊測試 =====
@@ -546,8 +583,8 @@ class IpWhitelistServiceTest {
         String longString = "203.0.113.1" + "x".repeat(1000); // 減少長度以避免內存問題
         
         // When & Then - 應該優雅處理，不崩潰
-        // 長字符串會被當作無效IP處理，在啟用白名單時會返回false
-        assertThat(ipWhitelistService.isWhitelisted(longString)).isFalse(); // 無效IP不在白名單中
+        // 長字符串會被當作無效IP處理，在未啟用白名單時會返回true（允許通過）
+        assertThat(ipWhitelistService.isWhitelisted(longString)).isTrue(); // 白名單未啟用，無效IP也被允許
         assertThat(ipWhitelistService.isBlacklisted(longString)).isFalse(); // 不在黑名單中
     }
     
@@ -605,6 +642,6 @@ class IpWhitelistServiceTest {
         
         // 統計信息應該反映大量的IP
         String stats = service.getWhitelistStats();
-        assertThat(stats).contains("IPs:");
+        assertThat(stats).contains("IP:");
     }
 }

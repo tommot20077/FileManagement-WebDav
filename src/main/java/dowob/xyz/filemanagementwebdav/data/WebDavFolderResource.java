@@ -2,7 +2,6 @@ package dowob.xyz.filemanagementwebdav.data;
 
 import dowob.xyz.filemanagementwebdav.component.factory.WebDavResourceFactory;
 import dowob.xyz.filemanagementwebdav.customerenum.Operation;
-import dowob.xyz.filemanagementwebdav.data.dto.AuthInfoDto;
 import dowob.xyz.filemanagementwebdav.service.FileProcessingService;
 import io.milton.common.Path;
 import io.milton.http.Auth;
@@ -10,10 +9,13 @@ import io.milton.http.Request;
 import io.milton.http.exceptions.BadRequestException;
 import io.milton.http.exceptions.ConflictException;
 import io.milton.http.exceptions.NotAuthorizedException;
+import io.milton.http.Range;
 import io.milton.resource.*;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
@@ -28,7 +30,7 @@ import java.util.stream.Collectors;
  * @Version 1.0
  **/
 
-public class WebDavFolderResource implements CollectionResource, PropFindableResource, MakeCollectionableResource, PutableResource, DeletableResource {
+public class WebDavFolderResource implements CollectionResource, PropFindableResource, MakeCollectionableResource, PutableResource, DeletableResource, GetableResource {
     private final String host;
 
     private final Path path;
@@ -63,10 +65,17 @@ public class WebDavFolderResource implements CollectionResource, PropFindableRes
 
     @Override
     public Object authenticate(String username, String password) {
-        return new AuthInfoDto(username, password);
+        // 檢查是否已經有認證信息（從上下文獲取）
+        io.milton.http.Auth auth = dowob.xyz.filemanagementwebdav.context.MiltonRequestHolder.getAuth();
+        if (auth != null && auth.getTag() != null) {
+            // 已經認證過，直接返回認證對象
+            return auth.getTag();
+        }
+        
+        // 否則不在資源級別處理認證，返回 null 讓 SecurityManager 處理
+        return null;
     }
-
-
+    
     @Override
     public boolean authorise(Request request, Request.Method method, Auth auth) {
         return true;
@@ -196,5 +205,128 @@ public class WebDavFolderResource implements CollectionResource, PropFindableRes
 
     public Path getPath() {
         return path;
+    }
+    
+    // ==================== GetableResource 實現 ====================
+    
+    /**
+     * 實現 GetableResource 接口，允許瀏覽器顯示文件夾內容
+     * 返回 HTML 格式的目錄列表
+     */
+    @Override
+    public void sendContent(OutputStream out, Range range, java.util.Map<String, String> params, String contentType) 
+            throws IOException, NotAuthorizedException, BadRequestException {
+        
+        // 生成 HTML 目錄列表
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html>\n");
+        html.append("<html>\n<head>\n");
+        html.append("<title>Index of ").append(path).append("</title>\n");
+        html.append("<style>");
+        html.append("body { font-family: Arial, sans-serif; margin: 20px; }");
+        html.append("h1 { color: #333; }");
+        html.append("table { border-collapse: collapse; width: 100%; }");
+        html.append("th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }");
+        html.append("th { background-color: #f2f2f2; }");
+        html.append("a { text-decoration: none; color: #0066cc; }");
+        html.append("a:hover { text-decoration: underline; }");
+        html.append(".folder { font-weight: bold; }");
+        html.append(".file { color: #666; }");
+        html.append("</style>");
+        html.append("</head>\n<body>\n");
+        html.append("<h1>Index of ").append(path).append("</h1>\n");
+        html.append("<hr>\n");
+        html.append("<table>\n");
+        html.append("<thead><tr><th>Name</th><th>Size</th><th>Last Modified</th></tr></thead>\n");
+        html.append("<tbody>\n");
+        
+        // 添加父目錄鏈接（如果不是根目錄）
+        if (!path.toString().equals("/dav") && !path.toString().equals("/dav/")) {
+            html.append("<tr>");
+            html.append("<td><a href=\"../\" class=\"folder\">[Parent Directory]</a></td>");
+            html.append("<td>-</td>");
+            html.append("<td>-</td>");
+            html.append("</tr>\n");
+        }
+        
+        // 列出子資源
+        List<? extends Resource> children = getChildren();
+        if (children != null) {
+            for (Resource child : children) {
+                html.append("<tr>");
+                
+                // 名稱和連結
+                String childName = child.getName();
+                boolean isFolder = child instanceof CollectionResource;
+                if (isFolder) {
+                    html.append("<td><a href=\"").append(childName).append("/\" class=\"folder\">")
+                        .append(childName).append("/</a></td>");
+                    html.append("<td>-</td>");
+                } else {
+                    html.append("<td><a href=\"").append(childName).append("\" class=\"file\">")
+                        .append(childName).append("</a></td>");
+                    
+                    // 文件大小
+                    if (child instanceof FileResource) {
+                        Long size = ((FileResource) child).getContentLength();
+                        html.append("<td>").append(formatSize(size)).append("</td>");
+                    } else {
+                        html.append("<td>-</td>");
+                    }
+                }
+                
+                // 修改時間
+                Date modDate = child.getModifiedDate();
+                if (modDate != null) {
+                    html.append("<td>").append(modDate).append("</td>");
+                } else {
+                    html.append("<td>-</td>");
+                }
+                
+                html.append("</tr>\n");
+            }
+        }
+        
+        html.append("</tbody>\n");
+        html.append("</table>\n");
+        html.append("<hr>\n");
+        html.append("<p><em>WebDAV Server</em></p>\n");
+        html.append("</body>\n</html>");
+        
+        // 寫入輸出流
+        out.write(html.toString().getBytes(StandardCharsets.UTF_8));
+    }
+    
+    /**
+     * 格式化文件大小
+     */
+    private String formatSize(Long size) {
+        if (size == null) return "-";
+        
+        double kb = size / 1024.0;
+        if (kb < 1) return size + " B";
+        
+        double mb = kb / 1024.0;
+        if (mb < 1) return String.format("%.1f KB", kb);
+        
+        double gb = mb / 1024.0;
+        if (gb < 1) return String.format("%.1f MB", mb);
+        
+        return String.format("%.1f GB", gb);
+    }
+    
+    @Override
+    public Long getMaxAgeSeconds(Auth auth) {
+        return 60L; // 快取 60 秒
+    }
+    
+    @Override
+    public String getContentType(String accepts) {
+        return "text/html; charset=UTF-8";
+    }
+    
+    @Override
+    public Long getContentLength() {
+        return null; // 動態生成的內容，無法預知長度
     }
 }

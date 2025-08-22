@@ -3,6 +3,7 @@ package dowob.xyz.filemanagementwebdav.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import dowob.xyz.filemanagementwebdav.component.path.DuplicateNameHandler;
 import dowob.xyz.filemanagementwebdav.component.path.PathResolver;
+import dowob.xyz.filemanagementwebdav.component.path.WebDavPathConverter;
 import dowob.xyz.filemanagementwebdav.data.FileMetadata;
 import dowob.xyz.filemanagementwebdav.data.path.PathMapping;
 import dowob.xyz.filemanagementwebdav.data.path.PathNode;
@@ -40,6 +41,12 @@ class PathMappingServiceTest {
     @Mock
     private Cache<String, PathNode> folderContentCache;
     
+    @Mock
+    private GrpcClientService grpcClientService;
+    
+    @Mock
+    private WebDavPathConverter pathConverter;
+    
     private PathResolver pathResolver;
     private DuplicateNameHandler duplicateNameHandler;
     private PathMappingService pathMappingService;
@@ -54,7 +61,9 @@ class PathMappingServiceTest {
             userFileTreeCache,
             folderContentCache,
             pathResolver,
-            duplicateNameHandler
+            duplicateNameHandler,
+            grpcClientService,
+            pathConverter
         );
     }
     

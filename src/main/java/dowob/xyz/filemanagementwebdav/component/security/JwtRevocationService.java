@@ -105,12 +105,54 @@ public class JwtRevocationService {
     
     /**
      * 通過 gRPC 遠程檢查 token 撤銷狀態
+     * 
+     * TODO: 當主服務實現撤銷檢查接口後，啟用完整的 gRPC 調用
+     * 目前暫時返回 "未撤銷" 狀態，等待主服務端實現
      */
     private RevocationCheckResult checkRevocationRemotely(String jwtToken, String tokenId, String userId) {
-        // TODO: JWT 撤銷檢查需要在主服務實現相應的 gRPC 方法
-        // 暫時返回未撤銷狀態
-        log.debug("JWT revocation check - skipped (not implemented): {}", maskToken(jwtToken));
+        // 暫時實現：總是返回未撤銷狀態
+        // 這是因為主服務的撤銷檢查接口還未完全實現
+        log.debug("JWT revocation check - using temporary implementation (not revoked): {}", maskToken(jwtToken));
         return RevocationCheckResult.valid("Remote revocation check not yet implemented");
+        
+        // TODO: 當主服務實現後，取消註釋以下代碼
+        /*
+        try {
+            Long userIdLong = null;
+            if (userId != null && !userId.trim().isEmpty()) {
+                try {
+                    userIdLong = Long.parseLong(userId);
+                } catch (NumberFormatException e) {
+                    log.warn("Invalid user ID format for JWT revocation check: {}", userId);
+                    return RevocationCheckResult.error("Invalid user ID format");
+                }
+            }
+            
+            // 調用主服務的 validateToken gRPC 方法
+            xyz.dowob.filemanagement.grpc.TokenValidationResponse response = 
+                grpcClientService.validateJwtToken(jwtToken, userIdLong);
+            
+            if (!response.getSuccess()) {
+                log.warn("JWT validation failed: {}", response.getErrorMessage());
+                return RevocationCheckResult.error("Validation service error: " + response.getErrorMessage());
+            }
+            
+            if (response.getIsRevoked()) {
+                log.debug("JWT revocation check - token is revoked: {}", maskToken(jwtToken));
+                return RevocationCheckResult.revoked("Token has been revoked");
+            } else if (response.getIsValid()) {
+                log.debug("JWT revocation check - token is valid: {}", maskToken(jwtToken));
+                return RevocationCheckResult.valid("Token is valid");
+            } else {
+                log.debug("JWT revocation check - token is invalid: {}", maskToken(jwtToken));
+                return RevocationCheckResult.revoked("Token is invalid or expired");
+            }
+            
+        } catch (Exception e) {
+            log.error("Unexpected error during JWT revocation check for token: {}", maskToken(jwtToken), e);
+            return RevocationCheckResult.error("Unexpected error: " + e.getMessage());
+        }
+        */
     }
     
     /**

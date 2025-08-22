@@ -52,6 +52,9 @@ class WebDavSecurityManagerTest {
     private JwtRevocationService mockJwtRevocationService;
     
     @Mock
+    private dowob.xyz.filemanagementwebdav.context.AuthenticationContextManager mockAuthContextManager;
+    
+    @Mock
     private Request mockRequest;
     
     @Mock
@@ -67,7 +70,7 @@ class WebDavSecurityManagerTest {
     void setUp() {
         // 重置 mocks
         reset(mockGrpcClientService, mockAuthCache, mockJwtService, mockJwtRevocationService, 
-              mockRequest, mockResource, mockAuth);
+              mockAuthContextManager, mockRequest, mockResource, mockAuth);
     }
     
     // ===== authenticate(String, String) 測試 =====
@@ -77,7 +80,7 @@ class WebDavSecurityManagerTest {
     void testAuthenticateWithCacheHit() {
         // Given
         AuthenticationCache.AuthCacheEntry cacheEntry = 
-                new AuthenticationCache.AuthCacheEntry(TestData.VALID_USER_ID, TestData.VALID_USERNAME, true);
+                new AuthenticationCache.AuthCacheEntry(TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLE, true);
         
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(cacheEntry);
@@ -97,7 +100,7 @@ class WebDavSecurityManagerTest {
         // 驗證沒有調用 gRPC 服務
         verify(mockGrpcClientService, never()).authenticate(anyString(), anyString());
         // 驗證沒有更新快取
-        verify(mockAuthCache, never()).put(anyString(), anyString(), any(), anyBoolean());
+        verify(mockAuthCache, never()).put(anyString(), anyString(), any(), any(), anyBoolean());
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
     }
@@ -107,7 +110,7 @@ class WebDavSecurityManagerTest {
     void testAuthenticateWithCacheHitFailure() {
         // Given
         AuthenticationCache.AuthCacheEntry cacheEntry = 
-                new AuthenticationCache.AuthCacheEntry(null, TestData.VALID_USERNAME, false);
+                new AuthenticationCache.AuthCacheEntry(null, TestData.VALID_USERNAME, null, false);
         
         when(mockAuthCache.get(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
                 .thenReturn(cacheEntry);
@@ -146,15 +149,15 @@ class WebDavSecurityManagerTest {
         
         WebDavSecurityManager.AuthenticatedUser user = (WebDavSecurityManager.AuthenticatedUser) result;
         assertThat(user.getUserId()).isEqualTo(TestData.VALID_USER_ID);
-        // 新的 AuthenticationResponse 沒有 roles 欄位，所以角色列表為空
-        assertThat(user.getRoles()).isEmpty();
+        // AuthenticationResponse 現在包含 role 欄位
+        assertThat(user.getRoles()).containsExactly("USER");
         
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
         // 驗證調用了 gRPC 服務
         verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD);
-        // 驗證更新了快取
-        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, TestData.VALID_USER_ID, true);
+        // 驗證更新了快取（包含角色）
+        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, TestData.VALID_USER_ID, "USER", true);
     }
     
     @Test
@@ -180,7 +183,7 @@ class WebDavSecurityManagerTest {
         // 驗證調用了 gRPC 服務
         verify(mockGrpcClientService).authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD);
         // 驗證更新了快取（失敗結果）
-        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, false);
+        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, "USER", false);
     }
     
     @Test
@@ -202,7 +205,7 @@ class WebDavSecurityManagerTest {
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
         // 驗證沒有更新快取
-        verify(mockAuthCache, never()).put(anyString(), anyString(), any(), anyBoolean());
+        verify(mockAuthCache, never()).put(anyString(), anyString(), any(), any(), anyBoolean());
     }
     
     @Test
@@ -215,8 +218,9 @@ class WebDavSecurityManagerTest {
         
         xyz.dowob.filemanagement.grpc.AuthenticationResponse response = xyz.dowob.filemanagement.grpc.AuthenticationResponse.newBuilder()
                 .setSuccess(true)
-                // 沒有設置 userId
-                // roles 欄位已被移除
+                // 沒有設置 userId (默認為 0)
+                .setUsername(TestData.VALID_USERNAME) // 設置 username
+                .setRole("USER") // 設置默認 role
                 .build();
         
         when(mockGrpcClientService.authenticate(TestData.VALID_USERNAME, TestData.VALID_PASSWORD))
@@ -230,8 +234,8 @@ class WebDavSecurityManagerTest {
         
         // 驗證檢查了JWT格式
         verify(mockJwtService).isJwtFormat(TestData.VALID_PASSWORD);
-        // 驗證快取存儲時處理了 null userId
-        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, null, true);
+        // 驗證快取存儲時處理了 userId 為 0 的情況
+        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.VALID_PASSWORD, "0", "USER", true);
     }
     
     // ===== authorise 測試 =====
@@ -241,7 +245,7 @@ class WebDavSecurityManagerTest {
     void testAuthoriseWithValidAuth() {
         // Given
         WebDavSecurityManager.AuthenticatedUser user = 
-                new WebDavSecurityManager.AuthenticatedUser(TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLES);
+                new WebDavSecurityManager.AuthenticatedUser(TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLE);
         
         when(mockAuth.getTag()).thenReturn(user);
         when(mockResource.getName()).thenReturn("test.txt");
@@ -334,12 +338,12 @@ class WebDavSecurityManagerTest {
                 new WebDavSecurityManager.AuthenticatedUser(
                         TestData.VALID_USER_ID, 
                         TestData.VALID_USERNAME, 
-                        TestData.VALID_ROLES);
+                        TestData.VALID_ROLE);
         
         // Then
         assertThat(user.getUserId()).isEqualTo(TestData.VALID_USER_ID);
         assertThat(user.getUsername()).isEqualTo(TestData.VALID_USERNAME);
-        assertThat(user.getRoles()).containsExactlyElementsOf(TestData.VALID_ROLES);
+        assertThat(user.getRole()).isEqualTo(TestData.VALID_ROLE);
         assertThat(user.hasRole("USER")).isTrue();
         assertThat(user.hasRole("ADMIN")).isFalse();
     }
@@ -352,10 +356,10 @@ class WebDavSecurityManagerTest {
                 new WebDavSecurityManager.AuthenticatedUser(
                         TestData.VALID_USER_ID, 
                         TestData.VALID_USERNAME, 
-                        null);
+                        (String) null);
         
         // Then
-        assertThat(user.getRoles()).isNull();
+        assertThat(user.getRoles()).isEmpty(); // null 角色會返回空列表
         assertThat(user.hasRole("USER")).isFalse();
     }
     
@@ -367,7 +371,7 @@ class WebDavSecurityManagerTest {
                 new WebDavSecurityManager.AuthenticatedUser(
                         TestData.VALID_USER_ID, 
                         TestData.VALID_USERNAME, 
-                        Collections.emptyList());
+                        (String) null);
         
         // Then
         assertThat(user.getRoles()).isEmpty();
@@ -394,7 +398,7 @@ class WebDavSecurityManagerTest {
         // Then
         assertThat(result).isNotNull();
         verify(mockJwtService).isJwtFormat(TestData.SPECIAL_PASSWORD);
-        verify(mockAuthCache).put(TestData.SPECIAL_USERNAME, TestData.SPECIAL_PASSWORD, TestData.VALID_USER_ID, true);
+        verify(mockAuthCache).put(TestData.VALID_USERNAME, TestData.SPECIAL_PASSWORD, TestData.VALID_USER_ID, "USER", true);
     }
     
     @Test
@@ -429,7 +433,7 @@ class WebDavSecurityManagerTest {
         when(mockJwtService.isJwtFormat(jwtToken)).thenReturn(true);
         
         JwtService.JwtValidationResult validResult = JwtService.JwtValidationResult.valid(
-            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLES, null);
+            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLE, null);
         when(mockJwtService.validateToken(jwtToken)).thenReturn(validResult);
         
         JwtRevocationService.RevocationCheckResult notRevokedResult = 
@@ -447,7 +451,7 @@ class WebDavSecurityManagerTest {
         WebDavSecurityManager.AuthenticatedUser user = (WebDavSecurityManager.AuthenticatedUser) result;
         assertThat(user.getUserId()).isEqualTo(TestData.VALID_USER_ID);
         assertThat(user.getUsername()).isEqualTo(TestData.VALID_USERNAME);
-        assertThat(user.getRoles()).containsExactlyElementsOf(TestData.VALID_ROLES);
+        assertThat(user.getRole()).isEqualTo(TestData.VALID_ROLE);
         
         // 驗證調用了必要的方法
         verify(mockJwtService).isJwtFormat(jwtToken);
@@ -493,7 +497,7 @@ class WebDavSecurityManagerTest {
         when(mockJwtService.isJwtFormat(jwtToken)).thenReturn(true);
         
         JwtService.JwtValidationResult validResult = JwtService.JwtValidationResult.valid(
-            TestData.VALID_USER_ID, "testuser2", TestData.VALID_ROLES, null);
+            TestData.VALID_USER_ID, "testuser2", TestData.VALID_ROLE, null);
         when(mockJwtService.validateToken(jwtToken)).thenReturn(validResult);
         
         // When - 請求用戶名與JWT中的用戶名不匹配
@@ -519,7 +523,7 @@ class WebDavSecurityManagerTest {
         when(mockJwtService.isJwtFormat(revokedJwtToken)).thenReturn(true);
         
         JwtService.JwtValidationResult validResult = JwtService.JwtValidationResult.valid(
-            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLES, null);
+            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLE, null);
         when(mockJwtService.validateToken(revokedJwtToken)).thenReturn(validResult);
         
         JwtRevocationService.RevocationCheckResult revokedResult = 
@@ -548,7 +552,7 @@ class WebDavSecurityManagerTest {
         when(mockJwtService.isJwtFormat(jwtToken)).thenReturn(true);
         
         JwtService.JwtValidationResult validResult = JwtService.JwtValidationResult.valid(
-            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLES, null);
+            TestData.VALID_USER_ID, TestData.VALID_USERNAME, TestData.VALID_ROLE, null);
         when(mockJwtService.validateToken(jwtToken)).thenReturn(validResult);
         
         JwtRevocationService.RevocationCheckResult errorResult = 

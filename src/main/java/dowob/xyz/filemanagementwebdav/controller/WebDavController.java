@@ -15,6 +15,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import java.io.IOException;
 
 /**
+ * WebDAV 請求控制器
+ * 
+ * 處理所有 /dav/** 路徑的 WebDAV 請求，並將其轉發給 Milton HttpManager 處理。
+ * 支援標準 WebDAV 操作如 PROPFIND、GET、PUT、DELETE、MKCOL、COPY、MOVE 等。
+ * 
  * @author yuan
  * @program FileManagement-WebDAV
  * @ClassName WebDavController
@@ -34,7 +39,7 @@ public class WebDavController {
     }
 
 
-    @RequestMapping(value = "/webdav/**")
+    @RequestMapping(value = "/dav/**")
     public void handleWebDav(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         // 檢查 WebDAV 服務是否啟用
         if (!toggleService.isServiceAvailable()) {

@@ -32,7 +32,8 @@ public class JwtTestUtils {
     public static final String DEFAULT_TEST_ISSUER = "FileManagement-Test-System";
     public static final String DEFAULT_TEST_USER_ID = "test-user-12345";
     public static final String DEFAULT_TEST_USERNAME = "testuser";
-    public static final List<String> DEFAULT_TEST_ROLES = Arrays.asList("USER", "ADVANCED_USER");
+    // 已移除 DEFAULT_TEST_ROLES，改用 DEFAULT_TEST_ROLE
+    public static final String DEFAULT_TEST_ROLE = "USER"; // 主要角色
     public static final long DEFAULT_EXPIRY_SECONDS = 3600L; // 1 hour
     
     private static final Algorithm DEFAULT_ALGORITHM = Algorithm.HMAC256(DEFAULT_TEST_SECRET);
@@ -43,18 +44,44 @@ public class JwtTestUtils {
      * 創建標準的測試 JWT Token
      */
     public static String createValidToken() {
-        return createToken(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLES, DEFAULT_EXPIRY_SECONDS);
+        return createTokenWithSingleRole(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLE, DEFAULT_EXPIRY_SECONDS);
     }
     
     /**
-     * 創建自定義的 JWT Token
+     * 創建自定義的 JWT Token（使用單一角色）
+     */
+    public static String createTokenWithSingleRole(String userId, String username, String role, long expirySeconds) {
+        return createTokenWithSingleRoleAndAlgorithm(userId, username, role, expirySeconds, DEFAULT_ALGORITHM);
+    }
+    
+    /**
+     * 創建自定義的 JWT Token（向後兼容，使用角色列表）
      */
     public static String createToken(String userId, String username, List<String> roles, long expirySeconds) {
         return createTokenWithAlgorithm(userId, username, roles, expirySeconds, DEFAULT_ALGORITHM);
     }
     
     /**
-     * 創建指定算法的 JWT Token
+     * 創建指定算法的 JWT Token（使用單一角色）
+     */
+    public static String createTokenWithSingleRoleAndAlgorithm(String userId, String username, String role, 
+                                                              long expirySeconds, Algorithm algorithm) {
+        var builder = JWT.create()
+                .withIssuer(DEFAULT_TEST_ISSUER)
+                .withSubject(userId)
+                .withClaim("username", username)
+                .withIssuedAt(Date.from(Instant.now()))
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(expirySeconds)));
+        
+        if (role != null && !role.trim().isEmpty()) {
+            builder.withClaim("role", role);
+        }
+        
+        return builder.sign(algorithm);
+    }
+    
+    /**
+     * 創建指定算法的 JWT Token（向後兼容，使用角色列表）
      */
     public static String createTokenWithAlgorithm(String userId, String username, List<String> roles, 
                                                  long expirySeconds, Algorithm algorithm) {
@@ -76,11 +103,25 @@ public class JwtTestUtils {
      * 創建過期的 JWT Token
      */
     public static String createExpiredToken() {
-        return createExpiredToken(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLES);
+        return createExpiredTokenWithSingleRole(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLE);
     }
     
     /**
-     * 創建指定用戶的過期 JWT Token
+     * 創建指定用戶的過期 JWT Token（使用單一角色）
+     */
+    public static String createExpiredTokenWithSingleRole(String userId, String username, String role) {
+        return JWT.create()
+                .withIssuer(DEFAULT_TEST_ISSUER)
+                .withSubject(userId)
+                .withClaim("username", username)
+                .withClaim("role", role)
+                .withIssuedAt(Date.from(Instant.now().minusSeconds(7200))) // 2 hours ago
+                .withExpiresAt(Date.from(Instant.now().minusSeconds(3600))) // 1 hour ago (expired)
+                .sign(DEFAULT_ALGORITHM);
+    }
+    
+    /**
+     * 創建指定用戶的過期 JWT Token（向後兼容，使用角色列表）
      */
     public static String createExpiredToken(String userId, String username, List<String> roles) {
         return JWT.create()
@@ -98,8 +139,8 @@ public class JwtTestUtils {
      */
     public static String createWrongSignatureToken() {
         Algorithm wrongAlgorithm = Algorithm.HMAC256("wrong-secret-key");
-        return createTokenWithAlgorithm(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, 
-                                      DEFAULT_TEST_ROLES, DEFAULT_EXPIRY_SECONDS, wrongAlgorithm);
+        return createTokenWithSingleRoleAndAlgorithm(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, 
+                                                   DEFAULT_TEST_ROLE, DEFAULT_EXPIRY_SECONDS, wrongAlgorithm);
     }
     
     /**
@@ -110,7 +151,7 @@ public class JwtTestUtils {
                 .withIssuer("wrong-issuer")
                 .withSubject(DEFAULT_TEST_USER_ID)
                 .withClaim("username", DEFAULT_TEST_USERNAME)
-                .withClaim("roles", DEFAULT_TEST_ROLES)
+                .withClaim("role", DEFAULT_TEST_ROLE)
                 .withIssuedAt(Date.from(Instant.now()))
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(DEFAULT_EXPIRY_SECONDS)))
                 .sign(DEFAULT_ALGORITHM);
@@ -132,7 +173,7 @@ public class JwtTestUtils {
             builder.withClaim("username", DEFAULT_TEST_USERNAME);
         }
         if (!missingRoles) {
-            builder.withClaim("roles", DEFAULT_TEST_ROLES);
+            builder.withClaim("role", DEFAULT_TEST_ROLE);
         }
         
         return builder.sign(DEFAULT_ALGORITHM);
@@ -146,7 +187,7 @@ public class JwtTestUtils {
                 .withIssuer(DEFAULT_TEST_ISSUER)
                 .withSubject(DEFAULT_TEST_USER_ID)
                 .withClaim("username", DEFAULT_TEST_USERNAME)
-                .withClaim("roles", DEFAULT_TEST_ROLES)
+                .withClaim("role", DEFAULT_TEST_ROLE)
                 .withIssuedAt(Date.from(Instant.now()))
                 // 沒有設置過期時間
                 .sign(DEFAULT_ALGORITHM);
@@ -160,7 +201,7 @@ public class JwtTestUtils {
                 .withIssuer(DEFAULT_TEST_ISSUER)
                 .withSubject(DEFAULT_TEST_USER_ID)
                 .withClaim("username", DEFAULT_TEST_USERNAME)
-                .withClaim("roles", DEFAULT_TEST_ROLES)
+                .withClaim("role", DEFAULT_TEST_ROLE)
                 .withClaim(claimKey, claimValue.toString())
                 .withIssuedAt(Date.from(Instant.now()))
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(DEFAULT_EXPIRY_SECONDS)))
@@ -316,7 +357,7 @@ public class JwtTestUtils {
      * 驗證 JwtValidationResult 包含指定的用戶信息
      */
     public static void assertUserInfo(JwtService.JwtValidationResult result, String expectedUserId, 
-                                    String expectedUsername, List<String> expectedRoles) {
+                                    String expectedUsername, String expectedRole) {
         assertValidResult(result);
         
         if (!expectedUserId.equals(result.getUserId())) {
@@ -327,8 +368,8 @@ public class JwtTestUtils {
             throw new AssertionError("Expected username: " + expectedUsername + ", but got: " + result.getUsername());
         }
         
-        if (expectedRoles != null && !expectedRoles.equals(result.getRoles())) {
-            throw new AssertionError("Expected roles: " + expectedRoles + ", but got: " + result.getRoles());
+        if (expectedRole != null && !expectedRole.equals(result.getRole())) {
+            throw new AssertionError("Expected role: " + expectedRole + ", but got: " + result.getRole());
         }
     }
     
@@ -392,9 +433,9 @@ public class JwtTestUtils {
      */
     public static List<String> createTokensWithDifferentExpiry() {
         return Arrays.asList(
-            createToken(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLES, 60),    // 1 minute
-            createToken(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLES, 3600),  // 1 hour
-            createToken(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLES, 86400), // 1 day
+            createTokenWithSingleRole(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLE, 60),    // 1 minute
+            createTokenWithSingleRole(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLE, 3600),  // 1 hour
+            createTokenWithSingleRole(DEFAULT_TEST_USER_ID, DEFAULT_TEST_USERNAME, DEFAULT_TEST_ROLE, 86400), // 1 day
             createExpiredToken() // expired
         );
     }

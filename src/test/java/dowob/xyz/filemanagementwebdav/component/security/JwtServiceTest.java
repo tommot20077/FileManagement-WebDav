@@ -38,7 +38,8 @@ class JwtServiceTest {
     private static final String TEST_ISSUER = "test-issuer";
     private static final String TEST_USER_ID = "12345";
     private static final String TEST_USERNAME = "testuser";
-    private static final List<String> TEST_ROLES = Arrays.asList("USER", "ADVANCED_USER");
+    // 已移除 TEST_ROLES，改用 TEST_ROLE
+    private static final String TEST_ROLE = "USER"; // 主要角色
     
     @BeforeEach
     void setUp() {
@@ -122,7 +123,7 @@ class JwtServiceTest {
         assertThat(result.isValid()).isTrue();
         assertThat(result.getUserId()).isEqualTo(TEST_USER_ID);
         assertThat(result.getUsername()).isEqualTo(TEST_USERNAME);
-        assertThat(result.getRoles()).containsExactlyElementsOf(TEST_ROLES);
+        assertThat(result.getRole()).isEqualTo(TEST_ROLE);
         assertThat(result.getErrorMessage()).isNull();
     }
     
@@ -149,7 +150,7 @@ class JwtServiceTest {
                 .withIssuer(TEST_ISSUER)
                 .withSubject(TEST_USER_ID)
                 .withClaim("username", TEST_USERNAME)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE)
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
                 .sign(wrongAlgorithm);
         
@@ -169,7 +170,7 @@ class JwtServiceTest {
                 .withIssuer("wrong-issuer")
                 .withSubject(TEST_USER_ID)
                 .withClaim("username", TEST_USERNAME)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE)
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
                 .sign(algorithm);
         
@@ -188,7 +189,7 @@ class JwtServiceTest {
         String missingClaimsJwt = JWT.create()
                 .withIssuer(TEST_ISSUER)
                 .withSubject(TEST_USER_ID)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE)
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
                 .sign(algorithm);
         
@@ -207,7 +208,7 @@ class JwtServiceTest {
         String missingUserIdJwt = JWT.create()
                 .withIssuer(TEST_ISSUER)
                 .withClaim("username", TEST_USERNAME)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE)
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
                 .sign(algorithm);
         
@@ -300,13 +301,13 @@ class JwtServiceTest {
     void testJwtValidationResultValid() {
         // When
         JwtService.JwtValidationResult result = JwtService.JwtValidationResult.valid(
-            TEST_USER_ID, TEST_USERNAME, TEST_ROLES, null);
+            TEST_USER_ID, TEST_USERNAME, TEST_ROLE, null);
         
         // Then
         assertThat(result.isValid()).isTrue();
         assertThat(result.getUserId()).isEqualTo(TEST_USER_ID);
         assertThat(result.getUsername()).isEqualTo(TEST_USERNAME);
-        assertThat(result.getRoles()).containsExactlyElementsOf(TEST_ROLES);
+        assertThat(result.getRole()).isEqualTo(TEST_ROLE);
         assertThat(result.getErrorMessage()).isNull();
     }
     
@@ -324,7 +325,7 @@ class JwtServiceTest {
         assertThat(result.getErrorMessage()).isEqualTo(errorMessage);
         assertThat(result.getUserId()).isNull();
         assertThat(result.getUsername()).isNull();
-        assertThat(result.getRoles()).isNull();
+        assertThat(result.getRole()).isNull();
     }
     
     @Test
@@ -332,11 +333,11 @@ class JwtServiceTest {
     void testJwtValidationResultHasRole() {
         // Given
         JwtService.JwtValidationResult result = JwtService.JwtValidationResult.valid(
-            TEST_USER_ID, TEST_USERNAME, TEST_ROLES, null);
+            TEST_USER_ID, TEST_USERNAME, TEST_ROLE, null);
         
-        // Then
-        assertThat(result.hasRole("USER")).isTrue();
-        assertThat(result.hasRole("ADVANCED_USER")).isTrue();
+        // Then - 現在使用單一角色系統
+        assertThat(result.hasRole("USER")).isTrue(); // TEST_ROLE 是 "USER"
+        assertThat(result.hasRole("ADVANCED_USER")).isFalse(); // 不是用戶的角色
         assertThat(result.hasRole("ADMIN")).isFalse();
     }
     
@@ -361,7 +362,7 @@ class JwtServiceTest {
                 .withIssuer(TEST_ISSUER)
                 .withSubject(TEST_USER_ID)
                 .withClaim("username", TEST_USERNAME)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE) // 使用單一角色而不是角色列表
                 .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
                 .withIssuedAt(Date.from(Instant.now()))
                 .sign(algorithm);
@@ -375,7 +376,7 @@ class JwtServiceTest {
                 .withIssuer(TEST_ISSUER)
                 .withSubject(TEST_USER_ID)
                 .withClaim("username", TEST_USERNAME)
-                .withClaim("roles", TEST_ROLES)
+                .withClaim("role", TEST_ROLE)
                 .withExpiresAt(Date.from(Instant.now().minusSeconds(3600))) // 已過期
                 .withIssuedAt(Date.from(Instant.now().minusSeconds(7200)))
                 .sign(algorithm);
